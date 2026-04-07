@@ -747,29 +747,6 @@
         }
       }
     },
-    "/config/backup": {
-      "post": {
-        "tags": [
-          "super::routes::config_management"
-        ],
-        "operationId": "backup_config",
-        "responses": {
-          "200": {
-            "description": "Config file backed up",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/config/canonical-model-info": {
       "post": {
         "tags": [
@@ -1481,29 +1458,6 @@
           },
           "500": {
             "description": "Unable to get the configuration value"
-          }
-        }
-      }
-    },
-    "/config/recover": {
-      "post": {
-        "tags": [
-          "super::routes::config_management"
-        ],
-        "operationId": "recover_config",
-        "responses": {
-          "200": {
-            "description": "Config recovery attempted",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
           }
         }
       }

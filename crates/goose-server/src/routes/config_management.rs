@@ -548,59 +548,6 @@ pub async fn upsert_permissions(
 }
 
 #[utoipa::path(
-    post,
-    path = "/config/backup",
-    responses(
-        (status = 200, description = "Config file backed up", body = String),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn backup_config() -> Result<Json<String>, ErrorResponse> {
-    let config_path = Paths::config_dir().join("config.yaml");
-
-    if !config_path.exists() {
-        return Err(ErrorResponse::not_found("Config file does not exist"));
-    }
-
-    let file_name = config_path
-        .file_name()
-        .ok_or_else(|| ErrorResponse::internal("Invalid config file path"))?;
-
-    let mut backup_name = file_name.to_os_string();
-    backup_name.push(".bak");
-
-    let backup = config_path.with_file_name(backup_name);
-    std::fs::copy(&config_path, &backup)?;
-    Ok(Json(format!("Copied {:?} to {:?}", config_path, backup)))
-}
-
-#[utoipa::path(
-    post,
-    path = "/config/recover",
-    responses(
-        (status = 200, description = "Config recovery attempted", body = String),
-        (status = 500, description = "Internal server error")
-    )
-)]
-pub async fn recover_config() -> Result<Json<String>, ErrorResponse> {
-    let config = Config::global();
-
-    // Force a reload which will trigger recovery if needed
-    let values = config.all_values()?;
-    let recovered_keys: Vec<String> = values.keys().cloned().collect();
-
-    if recovered_keys.is_empty() {
-        Ok(Json("Config recovery completed, but no data was recoverable. Starting with empty configuration.".to_string()))
-    } else {
-        Ok(Json(format!(
-            "Config recovery completed. Recovered {} keys: {}",
-            recovered_keys.len(),
-            recovered_keys.join(", ")
-        )))
-    }
-}
-
-#[utoipa::path(
     get,
     path = "/config/validate",
     responses(
@@ -924,8 +871,6 @@ pub fn routes(state: Arc<AppState>) -> Router {
             post(get_canonical_model_info),
         )
         .route("/config/init", post(init_config))
-        .route("/config/backup", post(backup_config))
-        .route("/config/recover", post(recover_config))
         .route("/config/validate", get(validate_config))
         .route("/config/permissions", post(upsert_permissions))
         .route("/config/custom-providers", post(create_custom_provider))

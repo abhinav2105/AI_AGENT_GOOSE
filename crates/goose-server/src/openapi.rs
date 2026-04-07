@@ -386,8 +386,6 @@ derive_utoipa!(Icon as IconSchema);
         super::routes::status::system_info,
         super::routes::status::diagnostics,
         super::routes::mcp_ui_proxy::mcp_ui_proxy,
-        super::routes::config_management::backup_config,
-        super::routes::config_management::recover_config,
         super::routes::config_management::validate_config,
         super::routes::config_management::init_config,
         super::routes::config_management::upsert_config,

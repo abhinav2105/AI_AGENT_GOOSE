@@ -2198,29 +2198,6 @@ export type ReadAllConfigResponses = {
 
 export type ReadAllConfigResponse = ReadAllConfigResponses[keyof ReadAllConfigResponses];
 
-export type BackupConfigData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/config/backup';
-};
-
-export type BackupConfigErrors = {
-    /**
-     * Internal server error
-     */
-    500: unknown;
-};
-
-export type BackupConfigResponses = {
-    /**
-     * Config file backed up
-     */
-    200: string;
-};
-
-export type BackupConfigResponse = BackupConfigResponses[keyof BackupConfigResponses];
-
 export type GetCanonicalModelInfoData = {
     body: ModelInfoQuery;
     path?: never;
@@ -2777,29 +2754,6 @@ export type ReadConfigResponses = {
      */
     200: unknown;
 };
-
-export type RecoverConfigData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/config/recover';
-};
-
-export type RecoverConfigErrors = {
-    /**
-     * Internal server error
-     */
-    500: unknown;
-};
-
-export type RecoverConfigResponses = {
-    /**
-     * Config recovery attempted
-     */
-    200: string;
-};
-
-export type RecoverConfigResponse = RecoverConfigResponses[keyof RecoverConfigResponses];
 
 export type RemoveConfigData = {
     body: ConfigKeyQuery;

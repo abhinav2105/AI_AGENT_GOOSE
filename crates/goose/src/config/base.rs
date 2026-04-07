@@ -391,25 +391,18 @@ impl Config {
         self.write_path().to_string_lossy().to_string()
     }
 
+    /// Load only the writable config file for read-modify-write operations.
+    /// Returns an empty mapping if the file doesn't exist or can't be parsed.
     fn load_write_config(&self) -> Result<Mapping, ConfigError> {
-        let mut values = if self.write_path().exists() {
-            self.load_values_with_recovery()?
-        } else {
-            // Config file doesn't exist, try to recover from backup first
-            tracing::info!("Config file doesn't exist, attempting recovery from backup");
+        if !self.write_path().exists() {
+            return Ok(Mapping::new());
+        }
+        let content = std::fs::read_to_string(self.write_path())?;
+        let mut values = parse_yaml_content(&content).unwrap_or_else(|e| {
+            tracing::warn!("Config file {:?} is corrupt: {}. Starting fresh.", self.write_path(), e);
+            Mapping::new()
+        });
 
-            if let Ok(backup_values) = self.try_restore_from_backup() {
-                tracing::info!("Successfully restored config from backup");
-                backup_values
-            } else {
-                // No backup available, create a default config
-                tracing::info!("No backup found, creating default configuration");
-                let default_config = self.load_init_config_if_exists().unwrap_or_default();
-                self.create_and_save_default_config(default_config)?
-            }
-        };
-
-        // Run migrations on the loaded config
         if crate::config::migrations::run_migrations(&mut values) {
             if let Err(e) = self.save_values(&values) {
                 tracing::warn!("Failed to save migrated config: {}", e);
@@ -454,119 +447,6 @@ impl Config {
         )))
     }
 
-    // Helper method to create and save default config with consistent logging
-    fn create_and_save_default_config(
-        &self,
-        default_config: Mapping,
-    ) -> Result<Mapping, ConfigError> {
-        // Try to write the default config to disk
-        match self.save_values(&default_config) {
-            Ok(_) => {
-                if default_config.is_empty() {
-                    tracing::info!("Created fresh empty config file");
-                } else {
-                    tracing::info!(
-                        "Created fresh config file from init-config.yaml with {} keys",
-                        default_config.len()
-                    );
-                }
-                Ok(default_config)
-            }
-            Err(write_error) => {
-                tracing::error!("Failed to write default config file: {}", write_error);
-                // Even if we can't write to disk, return config so app can still run
-                Ok(default_config)
-            }
-        }
-    }
-
-    fn load_values_with_recovery(&self) -> Result<Mapping, ConfigError> {
-        let file_content = std::fs::read_to_string(&self.write_path())?;
-
-        match parse_yaml_content(&file_content) {
-            Ok(values) => Ok(values),
-            Err(parse_error) => {
-                tracing::warn!(
-                    "Config file appears corrupted, attempting recovery: {}",
-                    parse_error
-                );
-
-                // Try to recover from backup
-                if let Ok(backup_values) = self.try_restore_from_backup() {
-                    tracing::info!("Successfully restored config from backup");
-                    return Ok(backup_values);
-                }
-
-                // Last resort: create a fresh default config file
-                tracing::error!("Could not recover config file, creating fresh default configuration. Original error: {}", parse_error);
-                let default_config = self.load_init_config_if_exists().unwrap_or_default();
-                self.create_and_save_default_config(default_config)
-            }
-        }
-    }
-
-    fn try_restore_from_backup(&self) -> Result<Mapping, ConfigError> {
-        let backup_paths = self.get_backup_paths();
-
-        for backup_path in backup_paths {
-            if backup_path.exists() {
-                match std::fs::read_to_string(&backup_path) {
-                    Ok(backup_content) => {
-                        match parse_yaml_content(&backup_content) {
-                            Ok(values) => {
-                                // Successfully parsed backup, restore it as the main config
-                                if let Err(e) = self.save_values(&values) {
-                                    tracing::warn!(
-                                        "Failed to restore backup as main config: {}",
-                                        e
-                                    );
-                                } else {
-                                    tracing::info!(
-                                        "Restored config from backup: {:?}",
-                                        backup_path
-                                    );
-                                }
-                                return Ok(values);
-                            }
-                            Err(e) => {
-                                tracing::warn!(
-                                    "Backup file {:?} is also corrupted: {}",
-                                    backup_path,
-                                    e
-                                );
-                                continue;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Could not read backup file {:?}: {}", backup_path, e);
-                        continue;
-                    }
-                }
-            }
-        }
-
-        Err(ConfigError::NotFound("No valid backup found".to_string()))
-    }
-
-    // Get list of backup file paths in order of preference
-    fn get_backup_paths(&self) -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-
-        // Primary backup (created by backup_config endpoint)
-        if let Some(file_name) = self.write_path().file_name() {
-            let mut backup_name = file_name.to_os_string();
-            backup_name.push(".bak");
-            paths.push(self.write_path().with_file_name(backup_name));
-        }
-
-        paths
-    }
-
-    fn load_init_config_if_exists(&self) -> Result<Mapping, ConfigError> {
-        load_init_config_from_workspace()
-    }
-
     fn config_write_target_path(&self) -> Result<PathBuf, ConfigError> {
         let mut path = self.write_path().clone();
 
@@ -603,9 +483,6 @@ impl Config {
     }
 
     fn save_values(&self, values: &Mapping) -> Result<(), ConfigError> {
-        // Create backup before writing new config
-        self.create_backup_if_needed()?;
-
         let target_path = self.config_write_target_path()?;
 
         // Convert to YAML for storage
@@ -650,36 +527,6 @@ impl Config {
         } else {
             Ok(())
         }
-    }
-
-    // Create backup of current config file if it exists and is valid
-    fn create_backup_if_needed(&self) -> Result<(), ConfigError> {
-        if !self.write_path().exists() {
-            return Ok(());
-        }
-
-        // Check if current config is valid before backing it up
-        let current_content = std::fs::read_to_string(&self.write_path())?;
-        if parse_yaml_content(&current_content).is_err() {
-            // Don't back up corrupted files
-            return Ok(());
-        }
-
-        // Create new backup
-        if let Some(file_name) = self.write_path().file_name() {
-            let mut backup_name = file_name.to_os_string();
-            backup_name.push(".bak");
-            let backup_path = self.write_path().with_file_name(backup_name);
-
-            if let Err(e) = std::fs::copy(&self.write_path(), &backup_path) {
-                tracing::warn!("Failed to create config backup: {}", e);
-                // Don't fail the entire operation if backup fails
-            } else {
-                tracing::debug!("Created config backup: {:?}", backup_path);
-            }
-        }
-
-        Ok(())
     }
 
     pub fn all_secrets(&self) -> Result<HashMap<String, Value>, ConfigError> {
@@ -1453,60 +1300,19 @@ mod tests {
     }
 
     #[test]
-    fn test_config_recovery_from_backup() -> Result<(), ConfigError> {
+    fn test_corrupt_config_skipped_on_read() -> Result<(), ConfigError> {
         let config_file = NamedTempFile::new().unwrap();
         let secrets_file = NamedTempFile::new().unwrap();
         let config = Config::new_with_file_secrets(config_file.path(), secrets_file.path())?;
 
-        // Create a valid config first
-        config.set_param("key1", "value1")?;
-        config.set_param("key2", 42)?;
-
-        // Corrupt the main config file
         std::fs::write(config_file.path(), "invalid: yaml: content: [unclosed")?;
 
         // Reads skip corrupt files gracefully
         let values = config.all_values()?;
-        assert!(
-            !values.contains_key("key1"),
-            "Corrupt file should be skipped during reads"
-        );
-
-        // A write triggers recovery from backup
-        config.set_param("key3", "new")?;
-
-        // Now the file should be recovered and readable again
-        let recovered_values = config.all_values()?;
-        assert!(
-            !recovered_values.is_empty(),
-            "Should have recovered data after write triggered recovery"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_config_recovery_creates_fresh_file() -> Result<(), ConfigError> {
-        let config_file = NamedTempFile::new().unwrap();
-        let secrets_file = NamedTempFile::new().unwrap();
-        let config = Config::new_with_file_secrets(config_file.path(), secrets_file.path())?;
-
-        // Create a corrupted config file with no backup
-        std::fs::write(config_file.path(), "invalid: yaml: content: [unclosed")?;
-
-        // Reads skip corrupt files
-        let values = config.all_values()?;
         assert!(values.is_empty() || !values.contains_key("key1"));
 
-        // A write triggers recovery - creates fresh config
+        // A write starts fresh (corrupt content is discarded)
         config.set_param("recovery_key", "value")?;
-
-        // Verify that a clean config file was written to disk
-        let file_content = std::fs::read_to_string(config_file.path())?;
-        let parsed: serde_yaml::Value = serde_yaml::from_str(&file_content)?;
-        assert!(parsed.is_mapping());
-
-        // Should be able to load it again
         let reloaded = config.all_values()?;
         assert!(reloaded.contains_key("recovery_key"));
 
@@ -1514,13 +1320,12 @@ mod tests {
     }
 
     #[test]
-    fn test_config_file_creation_when_missing() -> Result<(), ConfigError> {
+    fn test_missing_config_created_on_write() -> Result<(), ConfigError> {
         let config_file = NamedTempFile::new().unwrap();
         let secrets_file = NamedTempFile::new().unwrap();
         let config_path = config_file.path().to_path_buf();
         let config = Config::new_with_file_secrets(&config_path, secrets_file.path())?;
 
-        // Delete the file to simulate it not existing
         std::fs::remove_file(&config_path)?;
         assert!(!config_path.exists());
 
@@ -1532,42 +1337,9 @@ mod tests {
         config.set_param("new_key", "new_value")?;
         assert!(config_path.exists());
 
-        // Verify valid YAML was written
         let file_content = std::fs::read_to_string(&config_path)?;
         let parsed: serde_yaml::Value = serde_yaml::from_str(&file_content)?;
         assert!(parsed.is_mapping());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_config_recovery_from_backup_when_missing() -> Result<(), ConfigError> {
-        let config_file = NamedTempFile::new().unwrap();
-        let secrets_file = NamedTempFile::new().unwrap();
-        let config_path = config_file.path().to_path_buf();
-        let config = Config::new_with_file_secrets(&config_path, secrets_file.path())?;
-
-        // Create a config with some data (this also creates backups)
-        config.set_param("test_key_backup", "backup_value")?;
-        config.set_param("another_key", 42)?;
-        config.set_param("third_key", true)?;
-
-        let backup_paths = config.get_backup_paths();
-        assert!(backup_paths[0].exists(), "Backup should exist after writes");
-
-        // Delete the main config file
-        std::fs::remove_file(&config_path)?;
-        assert!(!config_path.exists());
-
-        // A write triggers recovery from backup
-        config.set_param("new_key", "value")?;
-
-        // Main config should be restored
-        assert!(config_path.exists(), "Main config file should be restored");
-
-        // Should be able to read recovered data
-        let values = config.all_values()?;
-        assert!(!values.is_empty(), "Should have recovered data from backup");
 
         Ok(())
     }
@@ -1589,27 +1361,6 @@ mod tests {
         // The temp file should not exist after successful write
         let temp_path = config_file.path().with_extension("tmp");
         assert!(!temp_path.exists(), "Temporary file should be cleaned up");
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_backup_rotation() -> Result<(), ConfigError> {
-        let config = new_test_config();
-
-        // Create multiple versions to test rotation
-        for i in 1..=7 {
-            config.set_param("version", i)?;
-        }
-
-        let backup_paths = config.get_backup_paths();
-
-        // Should have backups but not more than our limit
-        let existing_backups: Vec<_> = backup_paths.iter().filter(|p| p.exists()).collect();
-        assert!(
-            existing_backups.len() == 1,
-            "Should not exceed backup limit"
-        ); // .bak + .bak.1 through .bak.5
 
         Ok(())
     }
