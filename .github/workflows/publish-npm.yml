@@ -291,8 +291,14 @@ jobs:
       - name: Configure npm authentication
         if: inputs.dry-run != true
         run: |
+          # Write auth to project .npmrc
           cd ui
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+          cat .npmrc
+          # Also write to home .npmrc for npm fallback
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" >> ~/.npmrc
+          # Verify token works
+          npm whoami --registry https://registry.npmjs.org/ || echo "WARNING: npm whoami failed"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
 
@@ -304,6 +310,7 @@ jobs:
           pnpm publish -r --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
 
       - name: Dry run - Show what would be published
         if: inputs.dry-run == true
