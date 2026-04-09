@@ -258,4 +258,79 @@ mod tests {
         let content1 = parsed[1]["content"].as_array().unwrap();
         assert_eq!(content1[0]["text"], "It looks like a red pixel.");
     }
+
+    // --- Tests for extract_images_from_messages (Message-based) ---
+
+    #[test]
+    fn test_messages_extract_replaces_image_with_marker() {
+        let b64 = tiny_png_base64();
+        let messages = vec![Message::user().with_image(b64, "image/png")];
+
+        let (images, new_msgs) = extract_images_from_messages(&messages, "<__media__>");
+        assert_eq!(images.len(), 1);
+        assert!(!images[0].bytes.is_empty());
+        assert_eq!(new_msgs.len(), 1);
+        assert_eq!(new_msgs[0].as_concat_text(), "<__media__>");
+    }
+
+    #[test]
+    fn test_messages_extract_preserves_text() {
+        let messages = vec![Message::user().with_text("Hello world")];
+
+        let (images, new_msgs) = extract_images_from_messages(&messages, "<__media__>");
+        assert!(images.is_empty());
+        assert_eq!(new_msgs[0].as_concat_text(), "Hello world");
+    }
+
+    #[test]
+    fn test_messages_extract_multiple_images() {
+        let b64 = tiny_png_base64();
+        let messages = vec![Message::user()
+            .with_image(b64.clone(), "image/png")
+            .with_text("describe both")
+            .with_image(b64, "image/png")];
+
+        let (images, new_msgs) = extract_images_from_messages(&messages, "<__media__>");
+        assert_eq!(images.len(), 2);
+        assert_eq!(new_msgs[0].content.len(), 3);
+        assert_eq!(
+            new_msgs[0].as_concat_text(),
+            "<__media__>\ndescribe both\n<__media__>"
+        );
+    }
+
+    #[test]
+    fn test_messages_extract_no_images() {
+        let messages = vec![Message::user().with_text("just text")];
+
+        let (images, new_msgs) = extract_images_from_messages(&messages, "<__media__>");
+        assert!(images.is_empty());
+        assert_eq!(new_msgs[0].as_concat_text(), "just text");
+    }
+
+    #[test]
+    fn test_messages_extract_invalid_base64() {
+        let messages = vec![Message::user().with_image("not-valid-base64!!!", "image/png")];
+
+        let (images, new_msgs) = extract_images_from_messages(&messages, "<__media__>");
+        assert!(images.is_empty());
+        assert!(new_msgs[0].as_concat_text().contains("failed to decode"));
+    }
+
+    #[test]
+    fn test_messages_extract_mixed_content() {
+        let b64 = tiny_png_base64();
+        let messages = vec![
+            Message::user()
+                .with_text("What is this?")
+                .with_image(b64, "image/png"),
+            Message::assistant().with_text("It looks like a red pixel."),
+        ];
+
+        let (images, new_msgs) = extract_images_from_messages(&messages, "<__media__>");
+        assert_eq!(images.len(), 1);
+        assert_eq!(new_msgs.len(), 2);
+        assert_eq!(new_msgs[0].as_concat_text(), "What is this?\n<__media__>");
+        assert_eq!(new_msgs[1].as_concat_text(), "It looks like a red pixel.");
+    }
 }
