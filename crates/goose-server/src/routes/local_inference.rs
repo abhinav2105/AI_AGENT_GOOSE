@@ -165,8 +165,8 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
                     );
                     model.mmproj_path = Some(path.clone());
                     model.mmproj_source_url = Some(url.clone());
-                    model.settings.vision_capable = true;
                 }
+                model.settings.vision_capable = true;
 
                 // Populate mmproj_size_bytes from disk when available
                 if model.mmproj_size_bytes == 0 || model.settings.mmproj_size_bytes == 0 {
@@ -181,17 +181,19 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
                         "https://huggingface.co/{}/resolve/main/{}",
                         mmproj.repo, mmproj.filename
                     );
-                    mmproj_downloads_needed.push((model.id.clone(), url, path));
+                    mmproj_downloads_needed.push((model.id.clone(), url, path.clone()));
                 }
             }
         }
         let _ = registry.save();
     }
 
-    // Auto-download mmproj files for models that are already downloaded
+    // Auto-download mmproj files for models that are already downloaded.
+    // Deduplicate by path since multiple quants share one mmproj file.
     let dm = get_download_manager();
+    let mut started_paths = std::collections::HashSet::new();
     for (model_id, url, path) in mmproj_downloads_needed {
-        if !path.exists() {
+        if !path.exists() && started_paths.insert(path.clone()) {
             let download_id = format!("{}-mmproj", model_id);
             if dm.get_progress(&download_id).is_none() {
                 tracing::info!(model_id = %model_id, "Auto-downloading vision encoder for existing model");
