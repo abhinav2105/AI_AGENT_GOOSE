@@ -31,6 +31,7 @@ use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::model::params::LlamaModelParams;
 use llama_cpp_2::model::{LlamaChatMessage, LlamaChatTemplate, LlamaModel};
 use llama_cpp_2::{list_llama_ggml_backend_devices, LlamaBackendDeviceType, LogOptions};
+use multimodal::ExtractedImage;
 use rmcp::model::{Role, Tool};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -582,6 +583,18 @@ impl Provider for LocalInferenceProvider {
             system.to_string()
         };
 
+        // Extract images for vision-capable models, replacing them with markers.
+        // For non-vision models, leave messages unchanged (existing strip logic handles them).
+        let has_vision = resolved.mmproj_path.is_some();
+        let marker = llama_cpp_2::mtmd::mtmd_default_marker();
+        let (images, vision_messages): (Vec<ExtractedImage>, Option<Vec<Message>>) = if has_vision {
+            let (imgs, msgs) = multimodal::extract_images_from_messages(messages, marker);
+            (imgs, Some(msgs))
+        } else {
+            (Vec::new(), None)
+        };
+        let effective_messages: &[Message] = vision_messages.as_deref().unwrap_or(messages);
+
         // Build chat messages for the template
         let mut chat_messages =
             vec![
@@ -608,7 +621,7 @@ impl Provider for LocalInferenceProvider {
             })?];
         }
 
-        for msg in messages {
+        for msg in effective_messages {
             let role = match msg.role {
                 Role::User => "user",
                 Role::Assistant => "assistant",
@@ -632,7 +645,10 @@ impl Provider for LocalInferenceProvider {
         };
 
         let oai_messages_json = if model_settings.use_jinja || native_tool_calling {
-            Some(build_openai_messages_json(&system_prompt, messages))
+            Some(build_openai_messages_json(
+                &system_prompt,
+                effective_messages,
+            ))
         } else {
             None
         };
@@ -705,6 +721,7 @@ impl Provider for LocalInferenceProvider {
                 message_id: &message_id,
                 tx: &tx,
                 log: &mut log,
+                images: &images,
             };
 
             let result = if use_emulator {

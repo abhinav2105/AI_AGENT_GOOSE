@@ -9,8 +9,9 @@ use uuid::Uuid;
 
 use super::finalize_usage;
 use super::inference_engine::{
-    context_cap, create_and_prefill_context, estimate_max_context_for_memory, generation_loop,
-    validate_and_compute_context, GenerationContext, TokenAction,
+    context_cap, create_and_prefill_context, create_and_prefill_multimodal,
+    estimate_max_context_for_memory, generation_loop, validate_and_compute_context,
+    GenerationContext, TokenAction,
 };
 
 pub(super) fn generate_with_native_tools(
@@ -91,26 +92,32 @@ pub(super) fn generate_with_native_tools(
         None,
     );
 
-    let tokens = ctx
-        .loaded
-        .model
-        .str_to_token(&template_result.prompt, AddBos::Never)
-        .map_err(|e| ProviderError::ExecutionError(e.to_string()))?;
-
-    let (prompt_token_count, effective_ctx) = validate_and_compute_context(
-        ctx.loaded,
-        ctx.runtime,
-        tokens.len(),
-        ctx.context_limit,
-        ctx.settings,
-    )?;
-    let mut llama_ctx = create_and_prefill_context(
-        ctx.loaded,
-        ctx.runtime,
-        &tokens,
-        effective_ctx,
-        ctx.settings,
-    )?;
+    let (mut llama_ctx, prompt_token_count, effective_ctx) = if !ctx.images.is_empty() {
+        create_and_prefill_multimodal(
+            ctx.loaded,
+            ctx.runtime,
+            &template_result.prompt,
+            ctx.images,
+            ctx.context_limit,
+            ctx.settings,
+        )?
+    } else {
+        let tokens = ctx
+            .loaded
+            .model
+            .str_to_token(&template_result.prompt, AddBos::Never)
+            .map_err(|e| ProviderError::ExecutionError(e.to_string()))?;
+        let (ptc, ectx) = validate_and_compute_context(
+            ctx.loaded,
+            ctx.runtime,
+            tokens.len(),
+            ctx.context_limit,
+            ctx.settings,
+        )?;
+        let lctx =
+            create_and_prefill_context(ctx.loaded, ctx.runtime, &tokens, ectx, ctx.settings)?;
+        (lctx, ptc, ectx)
+    };
 
     let message_id = ctx.message_id;
     let tx = ctx.tx;

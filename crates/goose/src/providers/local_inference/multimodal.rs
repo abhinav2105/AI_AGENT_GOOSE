@@ -1,6 +1,3 @@
-// Used by Phase 3+ (MtmdContext lifecycle and multimodal prefill).
-#![allow(dead_code)]
-
 use base64::prelude::*;
 use serde_json::Value;
 
@@ -13,6 +10,7 @@ pub struct ExtractedImage {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct MultimodalMessages {
     pub messages_json: String,
     pub images: Vec<ExtractedImage>,
@@ -23,6 +21,7 @@ pub struct MultimodalMessages {
 /// and replace the part with `{"type": "text", "text": "<marker>"}`.
 ///
 /// Returns the modified JSON string and the extracted images in order.
+#[allow(dead_code)]
 pub fn extract_images_from_messages_json(
     messages_json: &str,
     marker: &str,
