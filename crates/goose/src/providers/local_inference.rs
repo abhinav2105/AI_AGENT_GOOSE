@@ -114,14 +114,15 @@ const DEFAULT_MODEL: &str = "bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M";
 
 pub const LOCAL_LLM_MODEL_CONFIG_KEY: &str = "LOCAL_LLM_MODEL";
 
-/// Resolve model path, context limit, and settings for a model ID from the registry.
-pub fn resolve_model_path(
-    model_id: &str,
-) -> Option<(
-    PathBuf,
-    usize,
-    crate::providers::local_inference::local_model_registry::ModelSettings,
-)> {
+pub struct ResolvedModelPaths {
+    pub model_path: PathBuf,
+    pub context_limit: usize,
+    pub settings: crate::providers::local_inference::local_model_registry::ModelSettings,
+    pub mmproj_path: Option<PathBuf>,
+}
+
+/// Resolve model path, context limit, settings, and mmproj path for a model ID from the registry.
+pub fn resolve_model_path(model_id: &str) -> Option<ResolvedModelPaths> {
     use crate::providers::local_inference::local_model_registry::{
         default_settings_for_model, get_registry,
     };
@@ -135,7 +136,14 @@ pub fn resolve_model_path(
             // recognized (or with a different quantization) still get the right behavior.
             let defaults = default_settings_for_model(model_id);
             settings.native_tool_calling = defaults.native_tool_calling;
-            return Some((entry.local_path.clone(), ctx, settings));
+            settings.vision_capable = defaults.vision_capable;
+            let mmproj_path = entry.mmproj_path.as_ref().filter(|p| p.exists()).cloned();
+            return Some(ResolvedModelPaths {
+                model_path: entry.local_path.clone(),
+                context_limit: ctx,
+                settings,
+                mmproj_path,
+            });
         }
     }
 
@@ -361,8 +369,9 @@ impl LocalInferenceProvider {
         model_id: &str,
         settings: &crate::providers::local_inference::local_model_registry::ModelSettings,
     ) -> Result<LoadedModel, ProviderError> {
-        let (model_path, _context_limit, _) = resolve_model_path(model_id)
+        let resolved = resolve_model_path(model_id)
             .ok_or_else(|| ProviderError::ExecutionError(format!("Unknown model: {}", model_id)))?;
+        let model_path = resolved.model_path;
 
         if !model_path.exists() {
             return Err(ProviderError::ExecutionError(format!(
@@ -483,13 +492,11 @@ impl Provider for LocalInferenceProvider {
         messages: &[Message],
         tools: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
-        let (_model_path, model_context_limit, model_settings) =
-            resolve_model_path(&model_config.model_name).ok_or_else(|| {
-                ProviderError::ExecutionError(format!(
-                    "Model not found: {}",
-                    model_config.model_name
-                ))
-            })?;
+        let resolved = resolve_model_path(&model_config.model_name).ok_or_else(|| {
+            ProviderError::ExecutionError(format!("Model not found: {}", model_config.model_name))
+        })?;
+        let model_context_limit = resolved.context_limit;
+        let model_settings = resolved.settings;
 
         // Ensure model is loaded — unload any other models first to free memory.
         {

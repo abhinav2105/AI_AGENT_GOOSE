@@ -62,6 +62,10 @@ pub struct ModelSettings {
     pub use_jinja: bool,
     #[serde(default = "default_true")]
     pub enable_thinking: bool,
+    /// Whether this model architecture supports vision input.
+    /// Derived from the featured model table, not user-configurable.
+    #[serde(default)]
+    pub vision_capable: bool,
 }
 
 fn default_true() -> bool {
@@ -94,8 +98,15 @@ impl Default for ModelSettings {
             native_tool_calling: false,
             use_jinja: false,
             enable_thinking: true,
+            vision_capable: false,
         }
     }
+}
+
+/// HuggingFace repo + filename for multimodal projection weights (vision encoder).
+pub struct MmprojSpec {
+    pub repo: &'static str,
+    pub filename: &'static str,
 }
 
 pub struct FeaturedModel {
@@ -103,32 +114,46 @@ pub struct FeaturedModel {
     pub spec: &'static str,
     /// Whether this model's GGUF template supports native tool calling via llama.cpp.
     pub native_tool_calling: bool,
+    /// Multimodal projection weights spec. None for text-only models.
+    pub mmproj: Option<MmprojSpec>,
 }
 
 pub const FEATURED_MODELS: &[FeaturedModel] = &[
     FeaturedModel {
         spec: "bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M",
         native_tool_calling: false,
+        mmproj: None,
     },
     FeaturedModel {
         spec: "bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M",
         native_tool_calling: false,
+        mmproj: None,
     },
     FeaturedModel {
         spec: "bartowski/Hermes-2-Pro-Mistral-7B-GGUF:Q4_K_M",
         native_tool_calling: false,
+        mmproj: None,
     },
     FeaturedModel {
         spec: "bartowski/Mistral-Small-24B-Instruct-2501-GGUF:Q4_K_M",
         native_tool_calling: false,
+        mmproj: None,
     },
     FeaturedModel {
         spec: "unsloth/gemma-4-E4B-it-GGUF:Q4_K_M",
         native_tool_calling: true,
+        mmproj: Some(MmprojSpec {
+            repo: "unsloth/gemma-4-E4B-it-GGUF",
+            filename: "mmproj-BF16.gguf",
+        }),
     },
     FeaturedModel {
         spec: "unsloth/gemma-4-26B-A4B-it-GGUF:Q4_K_M",
         native_tool_calling: true,
+        mmproj: Some(MmprojSpec {
+            repo: "unsloth/gemma-4-26B-A4B-it-GGUF",
+            filename: "mmproj-BF16.gguf",
+        }),
     },
 ];
 
@@ -144,8 +169,23 @@ pub fn default_settings_for_model(model_id: &str) -> ModelSettings {
     });
     ModelSettings {
         native_tool_calling: featured.is_some_and(|m| m.native_tool_calling),
+        vision_capable: featured.is_some_and(|m| m.mmproj.is_some()),
         ..ModelSettings::default()
     }
+}
+
+/// Look up the `MmprojSpec` for a featured model by its model ID.
+pub fn featured_mmproj_spec(model_id: &str) -> Option<&'static MmprojSpec> {
+    use super::hf_models::parse_model_spec;
+    let model_repo = model_id.split(':').next().unwrap_or(model_id);
+    FEATURED_MODELS.iter().find_map(|m| {
+        if let Ok((repo_id, _quant)) = parse_model_spec(m.spec) {
+            if repo_id == model_repo {
+                return m.mmproj.as_ref();
+            }
+        }
+        None
+    })
 }
 
 /// Check if a model ID corresponds to a featured model.
@@ -181,6 +221,15 @@ pub struct LocalModelEntry {
     pub settings: ModelSettings,
     #[serde(default)]
     pub size_bytes: u64,
+    /// Local path to the multimodal projection GGUF (vision encoder).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mmproj_path: Option<PathBuf>,
+    /// Download URL for the mmproj file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mmproj_source_url: Option<String>,
+    /// Size of the mmproj file in bytes.
+    #[serde(default)]
+    pub mmproj_size_bytes: u64,
 }
 
 impl LocalModelEntry {
@@ -200,6 +249,39 @@ impl LocalModelEntry {
         }
 
         let download_id = format!("{}-model", self.id);
+        let manager = get_download_manager();
+        if let Some(progress) = manager.get_progress(&download_id) {
+            return match progress.status {
+                DownloadStatus::Downloading => ModelDownloadStatus::Downloading {
+                    progress_percent: progress.progress_percent,
+                    bytes_downloaded: progress.bytes_downloaded,
+                    total_bytes: progress.total_bytes,
+                    speed_bps: progress.speed_bps.unwrap_or(0),
+                },
+                DownloadStatus::Completed => ModelDownloadStatus::Downloaded,
+                DownloadStatus::Failed | DownloadStatus::Cancelled => {
+                    ModelDownloadStatus::NotDownloaded
+                }
+            };
+        }
+
+        ModelDownloadStatus::NotDownloaded
+    }
+
+    pub fn has_vision(&self) -> bool {
+        self.mmproj_path.as_ref().is_some_and(|p| p.exists())
+    }
+
+    pub fn mmproj_download_status(&self) -> ModelDownloadStatus {
+        if let Some(path) = &self.mmproj_path {
+            if path.exists() {
+                return ModelDownloadStatus::Downloaded;
+            }
+        } else {
+            return ModelDownloadStatus::NotDownloaded;
+        }
+
+        let download_id = format!("{}-mmproj", self.id);
         let manager = get_download_manager();
         if let Some(progress) = manager.get_progress(&download_id) {
             return match progress.status {

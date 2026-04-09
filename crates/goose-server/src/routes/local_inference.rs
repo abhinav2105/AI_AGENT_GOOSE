@@ -13,9 +13,9 @@ use goose::providers::local_inference::{
     available_inference_memory_bytes,
     hf_models::{resolve_model_spec, HfGgufFile},
     local_model_registry::{
-        default_settings_for_model, get_registry, is_featured_model, model_id_from_repo,
-        LocalModelEntry, ModelDownloadStatus as RegistryDownloadStatus, ModelSettings,
-        FEATURED_MODELS,
+        default_settings_for_model, featured_mmproj_spec, get_registry, is_featured_model,
+        model_id_from_repo, LocalModelEntry, ModelDownloadStatus as RegistryDownloadStatus,
+        ModelSettings, FEATURED_MODELS,
     },
     recommend_local_model,
 };
@@ -47,6 +47,9 @@ pub struct LocalModelResponse {
     pub status: ModelDownloadStatus,
     pub recommended: bool,
     pub settings: ModelSettings,
+    pub vision_capable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mmproj_status: Option<ModelDownloadStatus>,
 }
 
 async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
@@ -91,6 +94,18 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
 
         let local_path = Paths::in_data_dir("models").join(&hf_file.filename);
 
+        let (mmproj_path, mmproj_source_url, mmproj_size_bytes) =
+            if let Some(mmproj) = featured.mmproj.as_ref() {
+                let path = Paths::in_data_dir("models").join(mmproj.filename);
+                let url = format!(
+                    "https://huggingface.co/{}/resolve/main/{}",
+                    mmproj.repo, mmproj.filename
+                );
+                (Some(path), Some(url), 0u64)
+            } else {
+                (None, None, 0u64)
+            };
+
         entries_to_add.push(LocalModelEntry {
             id: model_id.clone(),
             repo_id,
@@ -100,6 +115,9 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
             source_url: hf_file.download_url,
             settings: default_settings_for_model(&model_id),
             size_bytes: hf_file.size_bytes,
+            mmproj_path,
+            mmproj_source_url,
+            mmproj_size_bytes,
         });
     }
 
@@ -154,6 +172,28 @@ pub async fn list_local_models(
 
         let size_bytes = entry.file_size();
 
+        let vision_capable = entry.settings.vision_capable;
+        let mmproj_status = if vision_capable {
+            let ms = entry.mmproj_download_status();
+            Some(match ms {
+                RegistryDownloadStatus::NotDownloaded => ModelDownloadStatus::NotDownloaded,
+                RegistryDownloadStatus::Downloading {
+                    progress_percent,
+                    bytes_downloaded,
+                    total_bytes,
+                    speed_bps,
+                } => ModelDownloadStatus::Downloading {
+                    progress_percent,
+                    bytes_downloaded,
+                    total_bytes,
+                    speed_bps: Some(speed_bps),
+                },
+                RegistryDownloadStatus::Downloaded => ModelDownloadStatus::Downloaded,
+            })
+        } else {
+            None
+        };
+
         models.push(LocalModelResponse {
             id: entry.id.clone(),
             repo_id: entry.repo_id.clone(),
@@ -163,6 +203,8 @@ pub async fn list_local_models(
             status,
             recommended: recommended_id == entry.id,
             settings: entry.settings.clone(),
+            vision_capable,
+            mmproj_status,
         });
     }
 
@@ -267,6 +309,18 @@ pub async fn download_hf_model(
     let local_path = Paths::in_data_dir("models").join(&hf_file.filename);
     let download_url = hf_file.download_url.clone();
 
+    let mmproj_spec = featured_mmproj_spec(&model_id);
+    let (mmproj_path, mmproj_source_url, mmproj_size_bytes) = if let Some(mmproj) = mmproj_spec {
+        let path = Paths::in_data_dir("models").join(mmproj.filename);
+        let url = format!(
+            "https://huggingface.co/{}/resolve/main/{}",
+            mmproj.repo, mmproj.filename
+        );
+        (Some(path), Some(url), 0u64)
+    } else {
+        (None, None, 0u64)
+    };
+
     let entry = LocalModelEntry {
         id: model_id.clone(),
         repo_id,
@@ -276,6 +330,9 @@ pub async fn download_hf_model(
         source_url: download_url.clone(),
         settings: default_settings_for_model(&model_id),
         size_bytes: hf_file.size_bytes,
+        mmproj_path: mmproj_path.clone(),
+        mmproj_source_url: mmproj_source_url.clone(),
+        mmproj_size_bytes,
     };
 
     {
@@ -296,6 +353,19 @@ pub async fn download_hf_model(
     )
     .await
     .map_err(|e| ErrorResponse::internal(format!("Download failed: {}", e)))?;
+
+    if let (Some(mmproj_path), Some(mmproj_url)) = (mmproj_path, mmproj_source_url) {
+        if !mmproj_path.exists() {
+            dm.download_model(
+                format!("{}-mmproj", model_id),
+                mmproj_url,
+                mmproj_path,
+                None,
+            )
+            .await
+            .map_err(|e| ErrorResponse::internal(format!("mmproj download failed: {}", e)))?;
+        }
+    }
 
     Ok((StatusCode::ACCEPTED, Json(model_id)))
 }
@@ -351,20 +421,26 @@ pub async fn cancel_local_model_download(
     )
 )]
 pub async fn delete_local_model(Path(model_id): Path<String>) -> Result<StatusCode, ErrorResponse> {
-    let local_path = {
+    let (local_path, mmproj_path) = {
         let registry = get_registry()
             .lock()
             .map_err(|_| ErrorResponse::internal("Failed to acquire registry lock"))?;
         let entry = registry
             .get_model(&model_id)
             .ok_or_else(|| ErrorResponse::not_found("Model not found"))?;
-        entry.local_path.clone()
+        (entry.local_path.clone(), entry.mmproj_path.clone())
     };
 
     if local_path.exists() {
         tokio::fs::remove_file(&local_path)
             .await
             .map_err(|e| ErrorResponse::internal(format!("Failed to delete: {}", e)))?;
+    }
+
+    if let Some(mmproj) = mmproj_path {
+        if mmproj.exists() {
+            let _ = tokio::fs::remove_file(&mmproj).await;
+        }
     }
 
     // Only remove non-featured models from registry (featured ones stay as placeholders)
