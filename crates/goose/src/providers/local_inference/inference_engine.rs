@@ -341,7 +341,7 @@ pub(super) fn create_and_prefill_multimodal<'model>(
 
     let n_batch = llama_ctx.n_batch() as i32;
     let _n_past = chunks
-        .eval_chunks(mtmd_ctx, &llama_ctx, 0, 0, n_batch, false)
+        .eval_chunks(mtmd_ctx, &llama_ctx, 0, 0, n_batch, true)
         .map_err(|e| ProviderError::ExecutionError(format!("Multimodal eval failed: {e}")))?;
 
     Ok((llama_ctx, prompt_token_count, effective_ctx))
