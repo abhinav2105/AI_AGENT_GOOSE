@@ -114,10 +114,14 @@ const VisionBadge = ({ model, intl }: { model: LocalModelResponse; intl: ReturnT
   }
 
   if (isDownloading) {
+    const percent = mmproj && 'progress_percent' in mmproj
+      ? Math.round(mmproj.progress_percent)
+      : null;
     return (
       <span className="inline-flex items-center gap-1 text-xs text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded">
         <Eye className="w-3 h-3" />
         {intl.formatMessage(i18n.visionEncoderDownloading)}
+        {percent != null && ` ${percent}%`}
       </span>
     );
   }
@@ -172,6 +176,19 @@ export const LocalInferenceSettings = () => {
     loadModels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Poll model list while any vision encoder is downloading
+  useEffect(() => {
+    const hasDownloadingMmproj = models.some(
+      (m) => m.vision_capable && m.mmproj_status?.state === 'Downloading'
+    );
+    if (!hasDownloadingMmproj) return;
+
+    const interval = setInterval(() => {
+      loadModels();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [models, loadModels]);
 
   const selectModel = async (modelId: string) => {
     try {
