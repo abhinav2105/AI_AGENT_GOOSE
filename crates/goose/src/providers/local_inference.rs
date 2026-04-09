@@ -208,7 +208,31 @@ fn build_openai_messages_json(system: &str, messages: &[Message]) -> String {
 
     let mut arr: Vec<Value> = vec![json!({"role": "system", "content": system})];
     arr.extend(format_messages(messages, &ImageFormat::OpenAi));
+    strip_image_parts_from_messages(&mut arr);
     serde_json::to_string(&arr).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Remove `image_url` content parts from OpenAI-format messages JSON, replacing
+/// each with a text note. This prevents an FFI crash in llama.cpp which does not
+/// accept `image_url` content-part types.
+fn strip_image_parts_from_messages(messages: &mut [Value]) {
+    let mut stripped = false;
+    for msg in messages.iter_mut() {
+        if let Some(content) = msg.get_mut("content").and_then(|c| c.as_array_mut()) {
+            for part in content.iter_mut() {
+                if part.get("type").and_then(|t| t.as_str()) == Some("image_url") {
+                    *part = json!({
+                        "type": "text",
+                        "text": "[Image attached — image input is not yet supported with local models]"
+                    });
+                    stripped = true;
+                }
+            }
+        }
+    }
+    if stripped {
+        tracing::warn!("Stripped image content parts from messages — image input is not yet supported with local models");
+    }
 }
 
 /// Convert a message into plain text for the emulator path's chat history.
@@ -269,6 +293,12 @@ fn extract_text_content(msg: &Message) -> String {
                     parts.push(format!("Command error: {}", e));
                 }
             },
+            MessageContent::Image(_) => {
+                parts.push(
+                    "[Image attached — image input is not yet supported with local models]"
+                        .to_string(),
+                );
+            }
             _ => {}
         }
     }
