@@ -21,7 +21,13 @@ pub(super) fn generate_with_native_tools(
 ) -> Result<(), ProviderError> {
     let min_generation_headroom = 512;
     let n_ctx_train = ctx.loaded.model.n_ctx_train() as usize;
-    let memory_max_ctx = estimate_max_context_for_memory(&ctx.loaded.model, ctx.runtime);
+    let mmproj_overhead = if ctx.loaded.mtmd_ctx.is_some() {
+        ctx.settings.mmproj_size_bytes
+    } else {
+        0
+    };
+    let memory_max_ctx =
+        estimate_max_context_for_memory(&ctx.loaded.model, ctx.runtime, mmproj_overhead);
     let cap = context_cap(ctx.settings, ctx.context_limit, n_ctx_train, memory_max_ctx);
     let token_budget = cap.saturating_sub(min_generation_headroom);
 

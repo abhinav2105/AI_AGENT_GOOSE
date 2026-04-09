@@ -4,6 +4,7 @@ use crate::providers::utils::RequestLog;
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::{LlamaChatMessage, LlamaChatTemplate, LlamaModel};
+use llama_cpp_2::mtmd::MtmdContext;
 use llama_cpp_2::sampling::LlamaSampler;
 use std::num::NonZeroU32;
 
@@ -24,6 +25,8 @@ pub(super) struct GenerationContext<'a> {
 pub(super) struct LoadedModel {
     pub model: LlamaModel,
     pub template: LlamaChatTemplate,
+    /// Multimodal context for vision models. None for text-only models.
+    pub mtmd_ctx: Option<MtmdContext>,
 }
 
 /// Estimate the maximum context length that can fit in available accelerator/CPU
@@ -33,8 +36,10 @@ pub(super) struct LoadedModel {
 pub(super) fn estimate_max_context_for_memory(
     model: &LlamaModel,
     runtime: &InferenceRuntime,
+    mmproj_overhead_bytes: u64,
 ) -> Option<usize> {
-    let available = super::available_inference_memory_bytes(runtime);
+    let available =
+        super::available_inference_memory_bytes(runtime).saturating_sub(mmproj_overhead_bytes);
     if available == 0 {
         return None;
     }
@@ -209,7 +214,12 @@ pub(super) fn validate_and_compute_context(
     settings: &crate::providers::local_inference::local_model_registry::ModelSettings,
 ) -> Result<(usize, usize), ProviderError> {
     let n_ctx_train = loaded.model.n_ctx_train() as usize;
-    let memory_max_ctx = estimate_max_context_for_memory(&loaded.model, runtime);
+    let mmproj_overhead = if loaded.mtmd_ctx.is_some() {
+        settings.mmproj_size_bytes
+    } else {
+        0
+    };
+    let memory_max_ctx = estimate_max_context_for_memory(&loaded.model, runtime, mmproj_overhead);
     let effective_ctx = effective_context_size(
         prompt_token_count,
         settings,

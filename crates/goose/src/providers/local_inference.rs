@@ -138,6 +138,7 @@ pub fn resolve_model_path(model_id: &str) -> Option<ResolvedModelPaths> {
             let defaults = default_settings_for_model(model_id);
             settings.native_tool_calling = defaults.native_tool_calling;
             settings.vision_capable = defaults.vision_capable;
+            settings.mmproj_size_bytes = entry.mmproj_size_bytes;
             let mmproj_path = entry.mmproj_path.as_ref().filter(|p| p.exists()).cloned();
             return Some(ResolvedModelPaths {
                 model_path: entry.local_path.clone(),
@@ -408,9 +409,49 @@ impl LocalInferenceProvider {
             }
         };
 
+        let mtmd_ctx = Self::init_mtmd_context(&model, &resolved.mmproj_path, settings);
+
         tracing::info!(model_id = model_id, "Model loaded successfully");
 
-        Ok(LoadedModel { model, template })
+        Ok(LoadedModel {
+            model,
+            template,
+            mtmd_ctx,
+        })
+    }
+
+    fn init_mtmd_context(
+        model: &LlamaModel,
+        mmproj_path: &Option<PathBuf>,
+        settings: &crate::providers::local_inference::local_model_registry::ModelSettings,
+    ) -> Option<llama_cpp_2::mtmd::MtmdContext> {
+        use llama_cpp_2::mtmd::{MtmdContext, MtmdContextParams};
+
+        let mmproj_path = mmproj_path.as_ref().filter(|p| p.exists())?;
+
+        let params = MtmdContextParams {
+            use_gpu: true,
+            n_threads: settings
+                .n_threads
+                .unwrap_or_else(|| MtmdContextParams::default().n_threads),
+            ..MtmdContextParams::default()
+        };
+
+        match MtmdContext::init_from_file(mmproj_path.to_str().unwrap_or_default(), model, &params)
+        {
+            Ok(ctx) => {
+                tracing::info!(
+                    vision = ctx.support_vision(),
+                    audio = ctx.support_audio(),
+                    "Multimodal context initialized"
+                );
+                Some(ctx)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to init multimodal context");
+                None
+            }
+        }
     }
 }
 

@@ -66,6 +66,9 @@ pub struct ModelSettings {
     /// Derived from the featured model table, not user-configurable.
     #[serde(default)]
     pub vision_capable: bool,
+    /// Size of the mmproj file in bytes, used for memory accounting.
+    #[serde(default)]
+    pub mmproj_size_bytes: u64,
 }
 
 fn default_true() -> bool {
@@ -99,6 +102,7 @@ impl Default for ModelSettings {
             use_jinja: false,
             enable_thinking: true,
             vision_capable: false,
+            mmproj_size_bytes: 0,
         }
     }
 }
