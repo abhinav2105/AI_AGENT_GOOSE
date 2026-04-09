@@ -3,6 +3,7 @@ mod inference_emulated_tools;
 mod inference_engine;
 mod inference_native_tools;
 pub mod local_model_registry;
+pub(crate) mod multimodal;
 mod tool_parsing;
 
 use inference_emulated_tools::{
