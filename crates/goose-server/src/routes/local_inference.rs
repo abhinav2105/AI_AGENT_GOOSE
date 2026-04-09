@@ -143,11 +143,37 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
         });
     }
 
-    if !entries_to_add.is_empty() {
+    {
         let mut registry = get_registry()
             .lock()
             .map_err(|_| ErrorResponse::internal("Failed to acquire registry lock"))?;
-        registry.sync_with_featured(entries_to_add);
+
+        if !entries_to_add.is_empty() {
+            registry.sync_with_featured(entries_to_add);
+        }
+
+        // Backfill mmproj data for non-featured quants of featured repos
+        // (e.g. user downloaded Q8_0 but only Q4_K_M is in FEATURED_MODELS)
+        for model in registry.list_models_mut() {
+            if model.mmproj_path.is_some() && model.settings.vision_capable {
+                continue;
+            }
+            if let Some(mmproj) = featured_mmproj_spec(&model.id) {
+                let path = Paths::in_data_dir("models").join(mmproj.filename);
+                let url = format!(
+                    "https://huggingface.co/{}/resolve/main/{}",
+                    mmproj.repo, mmproj.filename
+                );
+                model.mmproj_path = Some(path.clone());
+                model.mmproj_source_url = Some(url.clone());
+                model.settings.vision_capable = true;
+
+                if model.is_downloaded() && !path.exists() {
+                    mmproj_downloads_needed.push((model.id.clone(), url, path));
+                }
+            }
+        }
+        let _ = registry.save();
     }
 
     // Auto-download mmproj files for models that are already downloaded

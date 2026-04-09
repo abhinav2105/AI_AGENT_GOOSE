@@ -234,7 +234,7 @@ fn strip_image_parts_from_messages(messages: &mut [Value]) {
                 if part.get("type").and_then(|t| t.as_str()) == Some("image_url") {
                     *part = json!({
                         "type": "text",
-                        "text": "[Image attached — image input is not yet supported with local models]"
+                        "text": "[Image attached — image input is not supported with the currently selected model]"
                     });
                     stripped = true;
                 }
@@ -242,7 +242,7 @@ fn strip_image_parts_from_messages(messages: &mut [Value]) {
         }
     }
     if stripped {
-        tracing::warn!("Stripped image content parts from messages — image input is not yet supported with local models");
+        tracing::warn!("Stripped image content parts from messages — vision encoder not available for this model");
     }
 }
 
@@ -306,7 +306,7 @@ fn extract_text_content(msg: &Message) -> String {
             },
             MessageContent::Image(_) => {
                 parts.push(
-                    "[Image attached — image input is not yet supported with local models]"
+                    "[Image attached — image input is not supported with the currently selected model]"
                         .to_string(),
                 );
             }

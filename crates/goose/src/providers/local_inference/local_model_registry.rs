@@ -455,6 +455,10 @@ impl LocalModelRegistry {
     pub fn list_models(&self) -> &[LocalModelEntry] {
         &self.models
     }
+
+    pub fn list_models_mut(&mut self) -> &mut [LocalModelEntry] {
+        &mut self.models
+    }
 }
 
 /// Generate a unique ID for a model from its repo_id and quantization.
