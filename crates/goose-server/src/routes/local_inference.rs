@@ -456,6 +456,7 @@ pub async fn cancel_local_model_download(
     manager
         .cancel_download(&format!("{}-model", model_id))
         .map_err(|e| ErrorResponse::internal(format!("{}", e)))?;
+    let _ = manager.cancel_download(&format!("{}-mmproj", model_id));
 
     Ok(StatusCode::OK)
 }
