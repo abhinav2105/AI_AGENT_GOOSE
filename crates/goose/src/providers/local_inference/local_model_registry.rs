@@ -257,6 +257,30 @@ pub struct LocalModelEntry {
 }
 
 impl LocalModelEntry {
+    /// Populate mmproj metadata and vision settings from the featured model
+    /// table if this model's repo has a known vision encoder.
+    pub fn enrich_with_featured_mmproj(&mut self) {
+        if let Some(mmproj) = featured_mmproj_spec(&self.id) {
+            let path = mmproj.local_path();
+            if self.mmproj_path.as_ref() != Some(&path) {
+                self.mmproj_path = Some(path.clone());
+                self.mmproj_source_url = Some(format!(
+                    "https://huggingface.co/{}/resolve/main/{}",
+                    mmproj.repo, mmproj.filename
+                ));
+            }
+            self.settings.vision_capable = true;
+            if self.mmproj_size_bytes == 0 || self.settings.mmproj_size_bytes == 0 {
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    self.mmproj_size_bytes = meta.len();
+                    self.settings.mmproj_size_bytes = meta.len();
+                }
+            }
+        }
+        let defaults = default_settings_for_model(&self.id);
+        self.settings.native_tool_calling = defaults.native_tool_calling;
+    }
+
     pub fn is_downloaded(&self) -> bool {
         self.local_path.exists()
     }
@@ -393,20 +417,9 @@ impl LocalModelRegistry {
     pub fn sync_with_featured(&mut self, featured_entries: Vec<LocalModelEntry>) {
         let mut changed = false;
 
-        for entry in featured_entries {
-            if let Some(existing) = self.models.iter_mut().find(|m| m.id == entry.id) {
-                // Backfill mmproj fields and vision settings for pre-existing entries
-                if existing.mmproj_path.is_none() && entry.mmproj_path.is_some() {
-                    existing.mmproj_path = entry.mmproj_path;
-                    existing.mmproj_source_url = entry.mmproj_source_url;
-                    existing.mmproj_size_bytes = entry.mmproj_size_bytes;
-                    changed = true;
-                }
-                if !existing.settings.vision_capable && entry.settings.vision_capable {
-                    existing.settings.vision_capable = entry.settings.vision_capable;
-                    changed = true;
-                }
-            } else {
+        for mut entry in featured_entries {
+            if !self.models.iter().any(|m| m.id == entry.id) {
+                entry.enrich_with_featured_mmproj();
                 self.models.push(entry);
                 changed = true;
             }
@@ -424,7 +437,8 @@ impl LocalModelRegistry {
         }
     }
 
-    pub fn add_model(&mut self, entry: LocalModelEntry) -> Result<()> {
+    pub fn add_model(&mut self, mut entry: LocalModelEntry) -> Result<()> {
+        entry.enrich_with_featured_mmproj();
         if let Some(existing) = self.models.iter_mut().find(|m| m.id == entry.id) {
             *existing = entry;
         } else {

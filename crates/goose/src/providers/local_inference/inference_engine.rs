@@ -40,11 +40,11 @@ pub(super) fn estimate_max_context_for_memory(
     runtime: &InferenceRuntime,
     mmproj_overhead_bytes: u64,
 ) -> Option<usize> {
-    let available =
-        super::available_inference_memory_bytes(runtime).saturating_sub(mmproj_overhead_bytes);
-    if available == 0 {
+    let raw_available = super::available_inference_memory_bytes(runtime);
+    if raw_available == 0 {
         return None;
     }
+    let available = raw_available.saturating_sub(mmproj_overhead_bytes);
 
     // Reserve memory for computation scratch buffers (attention, etc.) and other overhead.
     // The compute buffer can be 40-50% of the KV cache size for large models, so we

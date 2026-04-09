@@ -116,18 +116,8 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
 
         let local_path = Paths::in_data_dir("models").join(&hf_file.filename);
 
-        let (mmproj_path, mmproj_source_url, mmproj_size_bytes) =
-            if let Some(mmproj) = featured.mmproj.as_ref() {
-                let path = mmproj.local_path();
-                let url = format!(
-                    "https://huggingface.co/{}/resolve/main/{}",
-                    mmproj.repo, mmproj.filename
-                );
-                (Some(path), Some(url), 0u64)
-            } else {
-                (None, None, 0u64)
-            };
-
+        // enrich_with_featured_mmproj is called by sync_with_featured/add_model,
+        // so we don't need to populate mmproj fields here.
         entries_to_add.push(LocalModelEntry {
             id: model_id.clone(),
             repo_id,
@@ -137,9 +127,9 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
             source_url: hf_file.download_url,
             settings: default_settings_for_model(&model_id),
             size_bytes: hf_file.size_bytes,
-            mmproj_path,
-            mmproj_source_url,
-            mmproj_size_bytes,
+            mmproj_path: None,
+            mmproj_source_url: None,
+            mmproj_size_bytes: 0,
         });
     }
 
@@ -152,36 +142,20 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
             registry.sync_with_featured(entries_to_add);
         }
 
-        // Backfill mmproj data for non-featured quants of featured repos
-        // (e.g. user downloaded Q8_0 but only Q4_K_M is in FEATURED_MODELS)
+        // Backfill mmproj data for all registry models and collect any
+        // needed mmproj downloads for models already on disk.
         for model in registry.list_models_mut() {
-            if let Some(mmproj) = featured_mmproj_spec(&model.id) {
-                let path = mmproj.local_path();
-
-                if model.mmproj_path.as_ref() != Some(&path) {
-                    let url = format!(
-                        "https://huggingface.co/{}/resolve/main/{}",
-                        mmproj.repo, mmproj.filename
-                    );
-                    model.mmproj_path = Some(path.clone());
-                    model.mmproj_source_url = Some(url.clone());
-                }
-                model.settings.vision_capable = true;
-
-                // Populate mmproj_size_bytes from disk when available
-                if model.mmproj_size_bytes == 0 || model.settings.mmproj_size_bytes == 0 {
-                    if let Ok(meta) = std::fs::metadata(&path) {
-                        model.mmproj_size_bytes = meta.len();
-                        model.settings.mmproj_size_bytes = meta.len();
+            model.enrich_with_featured_mmproj();
+            if model.is_downloaded() {
+                if let Some(mmproj) = featured_mmproj_spec(&model.id) {
+                    let path = mmproj.local_path();
+                    if !path.exists() {
+                        let url = format!(
+                            "https://huggingface.co/{}/resolve/main/{}",
+                            mmproj.repo, mmproj.filename
+                        );
+                        mmproj_downloads_needed.push((model.id.clone(), url, path));
                     }
-                }
-
-                if model.is_downloaded() && !path.exists() {
-                    let url = format!(
-                        "https://huggingface.co/{}/resolve/main/{}",
-                        mmproj.repo, mmproj.filename
-                    );
-                    mmproj_downloads_needed.push((model.id.clone(), url, path.clone()));
                 }
             }
         }
@@ -388,18 +362,6 @@ pub async fn download_hf_model(
     let local_path = Paths::in_data_dir("models").join(&hf_file.filename);
     let download_url = hf_file.download_url.clone();
 
-    let mmproj_spec = featured_mmproj_spec(&model_id);
-    let (mmproj_path, mmproj_source_url, mmproj_size_bytes) = if let Some(mmproj) = mmproj_spec {
-        let path = mmproj.local_path();
-        let url = format!(
-            "https://huggingface.co/{}/resolve/main/{}",
-            mmproj.repo, mmproj.filename
-        );
-        (Some(path), Some(url), 0u64)
-    } else {
-        (None, None, 0u64)
-    };
-
     let entry = LocalModelEntry {
         id: model_id.clone(),
         repo_id,
@@ -409,19 +371,26 @@ pub async fn download_hf_model(
         source_url: download_url.clone(),
         settings: default_settings_for_model(&model_id),
         size_bytes: hf_file.size_bytes,
-        mmproj_path: mmproj_path.clone(),
-        mmproj_source_url: mmproj_source_url.clone(),
-        mmproj_size_bytes,
+        mmproj_path: None,
+        mmproj_source_url: None,
+        mmproj_size_bytes: 0,
     };
 
-    {
+    // add_model enriches the entry with mmproj metadata from the featured table
+    let mmproj_path = {
         let mut registry = get_registry()
             .lock()
             .map_err(|_| ErrorResponse::internal("Failed to acquire registry lock"))?;
         registry
             .add_model(entry)
             .map_err(|e| ErrorResponse::internal(format!("{}", e)))?;
-    }
+        registry.get_model(&model_id).and_then(|e| {
+            e.mmproj_path
+                .as_ref()
+                .zip(e.mmproj_source_url.as_ref())
+                .map(|(p, u)| (p.clone(), u.clone()))
+        })
+    };
 
     let dm = get_download_manager();
     dm.download_model(
@@ -433,7 +402,7 @@ pub async fn download_hf_model(
     .await
     .map_err(|e| ErrorResponse::internal(format!("Download failed: {}", e)))?;
 
-    if let (Some(mmproj_path), Some(mmproj_url)) = (mmproj_path, mmproj_source_url) {
+    if let Some((mmproj_path, mmproj_url)) = mmproj_path {
         if !mmproj_path.exists() {
             dm.download_model(
                 format!("{}-mmproj", model_id),
