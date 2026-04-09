@@ -158,22 +158,6 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
             if let Some(mmproj) = featured_mmproj_spec(&model.id) {
                 let path = mmproj.local_path();
 
-                // Migrate from old flat path (models/mmproj-BF16.gguf) to
-                // namespaced path (models/<repo>/mmproj-BF16.gguf)
-                let old_flat_path = Paths::in_data_dir("models").join(mmproj.filename);
-                if old_flat_path.exists() && !path.exists() {
-                    if let Some(parent) = path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    if std::fs::rename(&old_flat_path, &path).is_ok() {
-                        tracing::info!(
-                            old = %old_flat_path.display(),
-                            new = %path.display(),
-                            "Migrated mmproj to namespaced path"
-                        );
-                    }
-                }
-
                 if model.mmproj_path.as_ref() != Some(&path) {
                     let url = format!(
                         "https://huggingface.co/{}/resolve/main/{}",
