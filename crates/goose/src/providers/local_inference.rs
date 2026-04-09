@@ -658,6 +658,7 @@ impl Provider for LocalInferenceProvider {
         let model_name = model_config.model_name.clone();
         let context_limit = model_context_limit;
         let settings = model_settings;
+        let mmproj_path = resolved.mmproj_path.clone();
 
         let log_payload = serde_json::json!({
             "system": &system_prompt,
@@ -699,8 +700,8 @@ impl Provider for LocalInferenceProvider {
                 }};
             }
 
-            let model_guard = model_arc.blocking_lock();
-            let loaded = match model_guard.as_ref() {
+            let mut model_guard = model_arc.blocking_lock();
+            let loaded = match model_guard.as_mut() {
                 Some(l) => l,
                 None => {
                     send_err!(ProviderError::ExecutionError(
@@ -708,6 +709,16 @@ impl Provider for LocalInferenceProvider {
                     ));
                 }
             };
+
+            // Lazily initialize the multimodal context if the vision encoder
+            // was downloaded after the model was loaded.
+            if !images.is_empty() && loaded.mtmd_ctx.is_none() {
+                loaded.mtmd_ctx = LocalInferenceProvider::init_mtmd_context(
+                    &loaded.model,
+                    &mmproj_path,
+                    &settings,
+                );
+            }
 
             let message_id = Uuid::new_v4().to_string();
 
