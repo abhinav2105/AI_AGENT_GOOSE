@@ -122,6 +122,17 @@ pub struct MmprojSpec {
     pub filename: &'static str,
 }
 
+impl MmprojSpec {
+    /// Local path for this mmproj, namespaced by repo to avoid collisions
+    /// between different models that use the same filename.
+    pub fn local_path(&self) -> std::path::PathBuf {
+        let repo_name = self.repo.split('/').next_back().unwrap_or(self.repo);
+        Paths::in_data_dir("models")
+            .join(repo_name)
+            .join(self.filename)
+    }
+}
+
 pub struct FeaturedModel {
     /// HuggingFace spec in "author/repo-GGUF:quantization" format.
     pub spec: &'static str,

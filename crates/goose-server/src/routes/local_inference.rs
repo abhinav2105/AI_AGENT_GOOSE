@@ -78,7 +78,7 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
 
                 if needs_download {
                     if let Some(mmproj) = featured.mmproj.as_ref() {
-                        let path = Paths::in_data_dir("models").join(mmproj.filename);
+                        let path = mmproj.local_path();
                         let url = format!(
                             "https://huggingface.co/{}/resolve/main/{}",
                             mmproj.repo, mmproj.filename
@@ -118,7 +118,7 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
 
         let (mmproj_path, mmproj_source_url, mmproj_size_bytes) =
             if let Some(mmproj) = featured.mmproj.as_ref() {
-                let path = Paths::in_data_dir("models").join(mmproj.filename);
+                let path = mmproj.local_path();
                 let url = format!(
                     "https://huggingface.co/{}/resolve/main/{}",
                     mmproj.repo, mmproj.filename
@@ -156,9 +156,25 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
         // (e.g. user downloaded Q8_0 but only Q4_K_M is in FEATURED_MODELS)
         for model in registry.list_models_mut() {
             if let Some(mmproj) = featured_mmproj_spec(&model.id) {
-                let path = Paths::in_data_dir("models").join(mmproj.filename);
+                let path = mmproj.local_path();
 
-                if model.mmproj_path.is_none() {
+                // Migrate from old flat path (models/mmproj-BF16.gguf) to
+                // namespaced path (models/<repo>/mmproj-BF16.gguf)
+                let old_flat_path = Paths::in_data_dir("models").join(mmproj.filename);
+                if old_flat_path.exists() && !path.exists() {
+                    if let Some(parent) = path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if std::fs::rename(&old_flat_path, &path).is_ok() {
+                        tracing::info!(
+                            old = %old_flat_path.display(),
+                            new = %path.display(),
+                            "Migrated mmproj to namespaced path"
+                        );
+                    }
+                }
+
+                if model.mmproj_path.as_ref() != Some(&path) {
                     let url = format!(
                         "https://huggingface.co/{}/resolve/main/{}",
                         mmproj.repo, mmproj.filename
@@ -385,7 +401,7 @@ pub async fn download_hf_model(
 
     let mmproj_spec = featured_mmproj_spec(&model_id);
     let (mmproj_path, mmproj_source_url, mmproj_size_bytes) = if let Some(mmproj) = mmproj_spec {
-        let path = Paths::in_data_dir("models").join(mmproj.filename);
+        let path = mmproj.local_path();
         let url = format!(
             "https://huggingface.co/{}/resolve/main/{}",
             mmproj.repo, mmproj.filename
