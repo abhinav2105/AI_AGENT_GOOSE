@@ -195,7 +195,10 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
     for (model_id, url, path) in mmproj_downloads_needed {
         if !path.exists() && started_paths.insert(path.clone()) {
             let download_id = format!("{}-mmproj", model_id);
-            if dm.get_progress(&download_id).is_none() {
+            let dominated_by_active = dm
+                .get_progress(&download_id)
+                .is_some_and(|p| p.status == goose::download_manager::DownloadStatus::Downloading);
+            if !dominated_by_active {
                 tracing::info!(model_id = %model_id, "Auto-downloading vision encoder for existing model");
                 if let Err(e) = dm.download_model(download_id, url, path, None).await {
                     tracing::warn!(model_id = %model_id, error = %e, "Failed to start mmproj download");

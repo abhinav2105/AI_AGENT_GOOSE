@@ -315,10 +315,7 @@ impl LocalModelEntry {
                     total_bytes: progress.total_bytes,
                     speed_bps: progress.speed_bps.unwrap_or(0),
                 },
-                DownloadStatus::Completed => ModelDownloadStatus::Downloaded,
-                DownloadStatus::Failed | DownloadStatus::Cancelled => {
-                    ModelDownloadStatus::NotDownloaded
-                }
+                _ => ModelDownloadStatus::NotDownloaded,
             };
         }
 
