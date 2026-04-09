@@ -68,6 +68,8 @@ pub(super) fn generate_with_native_tools(
         }
     };
 
+    let estimated_image_tokens = ctx.images.len() * ctx.settings.image_token_estimate;
+
     let template_result = match apply_template(full_tools_json) {
         Ok(r) => {
             let token_count = ctx
@@ -76,7 +78,7 @@ pub(super) fn generate_with_native_tools(
                 .str_to_token(&r.prompt, AddBos::Never)
                 .map(|t| t.len())
                 .unwrap_or(0);
-            if token_count > token_budget {
+            if token_count + estimated_image_tokens > token_budget {
                 apply_template(compact_tools).unwrap_or(r)
             } else {
                 r

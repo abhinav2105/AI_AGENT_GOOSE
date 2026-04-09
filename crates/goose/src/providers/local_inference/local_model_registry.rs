@@ -66,6 +66,10 @@ pub struct ModelSettings {
     /// Derived from the featured model table, not user-configurable.
     #[serde(default)]
     pub vision_capable: bool,
+    /// Estimated tokens per image for budget planning before mtmd tokenization.
+    /// The actual count is determined after tokenization via `chunks.total_tokens()`.
+    #[serde(default = "default_image_token_estimate")]
+    pub image_token_estimate: usize,
     /// Size of the mmproj file in bytes, used for memory accounting.
     #[serde(default)]
     pub mmproj_size_bytes: u64,
@@ -73,6 +77,10 @@ pub struct ModelSettings {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_image_token_estimate() -> usize {
+    256
 }
 
 fn default_repeat_penalty() -> f32 {
@@ -102,6 +110,7 @@ impl Default for ModelSettings {
             use_jinja: false,
             enable_thinking: true,
             vision_capable: false,
+            image_token_estimate: default_image_token_estimate(),
             mmproj_size_bytes: 0,
         }
     }
