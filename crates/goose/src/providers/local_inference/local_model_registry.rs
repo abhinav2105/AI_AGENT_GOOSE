@@ -386,7 +386,19 @@ impl LocalModelRegistry {
         let mut changed = false;
 
         for entry in featured_entries {
-            if !self.models.iter().any(|m| m.id == entry.id) {
+            if let Some(existing) = self.models.iter_mut().find(|m| m.id == entry.id) {
+                // Backfill mmproj fields and vision settings for pre-existing entries
+                if existing.mmproj_path.is_none() && entry.mmproj_path.is_some() {
+                    existing.mmproj_path = entry.mmproj_path;
+                    existing.mmproj_source_url = entry.mmproj_source_url;
+                    existing.mmproj_size_bytes = entry.mmproj_size_bytes;
+                    changed = true;
+                }
+                if !existing.settings.vision_capable && entry.settings.vision_capable {
+                    existing.settings.vision_capable = entry.settings.vision_capable;
+                    changed = true;
+                }
+            } else {
                 self.models.push(entry);
                 changed = true;
             }

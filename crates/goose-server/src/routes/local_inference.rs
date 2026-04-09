@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::routes::errors::ErrorResponse;
 use crate::state::AppState;
 use axum::{
@@ -54,6 +56,7 @@ pub struct LocalModelResponse {
 
 async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
     let mut entries_to_add = Vec::new();
+    let mut mmproj_downloads_needed: Vec<(String, String, PathBuf)> = Vec::new();
 
     for featured in FEATURED_MODELS {
         let (repo_id, quantization) = match hf_models::parse_model_spec(featured.spec) {
@@ -67,8 +70,27 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
             let registry = get_registry()
                 .lock()
                 .map_err(|_| ErrorResponse::internal("Failed to acquire registry lock"))?;
-            if registry.has_model(&model_id) {
-                continue;
+            if let Some(existing) = registry.get_model(&model_id) {
+                let needs_backfill = existing.mmproj_path.is_none() && featured.mmproj.is_some();
+                let needs_download = existing.is_downloaded()
+                    && featured.mmproj.is_some()
+                    && !existing.mmproj_path.as_ref().is_some_and(|p| p.exists());
+
+                if needs_download {
+                    if let Some(mmproj) = featured.mmproj.as_ref() {
+                        let path = Paths::in_data_dir("models").join(mmproj.filename);
+                        let url = format!(
+                            "https://huggingface.co/{}/resolve/main/{}",
+                            mmproj.repo, mmproj.filename
+                        );
+                        mmproj_downloads_needed.push((model_id.clone(), url, path));
+                    }
+                }
+
+                if !needs_backfill {
+                    continue;
+                }
+                // Fall through to build the entry for sync_with_featured backfill
             }
         }
 
@@ -126,6 +148,20 @@ async fn ensure_featured_models_in_registry() -> Result<(), ErrorResponse> {
             .lock()
             .map_err(|_| ErrorResponse::internal("Failed to acquire registry lock"))?;
         registry.sync_with_featured(entries_to_add);
+    }
+
+    // Auto-download mmproj files for models that are already downloaded
+    let dm = get_download_manager();
+    for (model_id, url, path) in mmproj_downloads_needed {
+        if !path.exists() {
+            let download_id = format!("{}-mmproj", model_id);
+            if dm.get_progress(&download_id).is_none() {
+                tracing::info!(model_id = %model_id, "Auto-downloading vision encoder for existing model");
+                if let Err(e) = dm.download_model(download_id, url, path, None).await {
+                    tracing::warn!(model_id = %model_id, error = %e, "Failed to start mmproj download");
+                }
+            }
+        }
     }
 
     Ok(())
