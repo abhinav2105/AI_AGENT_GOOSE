@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Download, Trash2, X, ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
+import { Download, Trash2, X, ChevronDown, ChevronUp, Settings2, Eye } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { useModelAndProvider } from '../../ModelAndProviderContext';
 import { defineMessages, useIntl } from '../../../i18n';
@@ -83,7 +83,52 @@ const i18n = defineMessages({
     id: 'localInferenceSettings.modelSettingsTitle',
     defaultMessage: 'Model settings',
   },
+  vision: {
+    id: 'localInferenceSettings.vision',
+    defaultMessage: 'Vision',
+  },
+  visionEncoderDownloading: {
+    id: 'localInferenceSettings.visionEncoderDownloading',
+    defaultMessage: 'Vision encoder downloading…',
+  },
+  visionEncoderNotDownloaded: {
+    id: 'localInferenceSettings.visionEncoderNotDownloaded',
+    defaultMessage: 'Vision encoder not downloaded',
+  },
 });
+
+const VisionBadge = ({ model, intl }: { model: LocalModelResponse; intl: ReturnType<typeof useIntl> }) => {
+  if (!model.vision_capable) return null;
+
+  const mmproj = model.mmproj_status;
+  const isDownloaded = mmproj?.state === 'Downloaded';
+  const isDownloading = mmproj?.state === 'Downloading';
+
+  if (isDownloaded) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded">
+        <Eye className="w-3 h-3" />
+        {intl.formatMessage(i18n.vision)}
+      </span>
+    );
+  }
+
+  if (isDownloading) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded">
+        <Eye className="w-3 h-3" />
+        {intl.formatMessage(i18n.visionEncoderDownloading)}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-text-muted bg-background-subtle px-2 py-0.5 rounded">
+      <Eye className="w-3 h-3" />
+      {intl.formatMessage(i18n.vision)}
+    </span>
+  );
+};
 
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
@@ -365,6 +410,7 @@ export const LocalInferenceSettings = () => {
                           {intl.formatMessage(i18n.recommended)}
                         </span>
                       )}
+                      <VisionBadge model={model} intl={intl} />
                     </div>
                     <div className="flex items-center gap-1">
                       <Button
@@ -414,6 +460,7 @@ export const LocalInferenceSettings = () => {
                           {intl.formatMessage(i18n.recommended)}
                         </span>
                       )}
+                      <VisionBadge model={model} intl={intl} />
                     </div>
                   </div>
                   <Button
