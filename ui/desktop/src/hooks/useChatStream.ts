@@ -867,7 +867,17 @@ export function useChatStream({
 
       dispatch({ type: 'START_STREAMING' });
 
-      await submitToSession(sessionId, newMessage, currentMessages);
+      const recipeName = currentState.session?.recipe?.title;
+      const recipeVersion = currentState.session?.recipe?.version ?? 'unknown';
+
+      await submitToSession(
+        sessionId,
+        newMessage,
+        currentMessages,
+        undefined,
+        recipeName,
+        recipeVersion,
+      );
     },
     [sessionId, submitToSession]
   );
