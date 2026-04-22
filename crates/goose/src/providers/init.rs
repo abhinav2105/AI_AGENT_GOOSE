@@ -25,6 +25,7 @@ use super::{
     gemini_oauth::GeminiOAuthProvider,
     githubcopilot::GithubCopilotProvider,
     google::GoogleProvider,
+    kimicode::KimiCodeProvider,
     litellm::LiteLLMProvider,
     nanogpt::NanoGptProvider,
     ollama::OllamaProvider,
@@ -72,6 +73,7 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
         registry.register::<GeminiOAuthProvider>(true);
         registry.register::<GithubCopilotProvider>(false);
         registry.register::<GoogleProvider>(true);
+        registry.register::<KimiCodeProvider>(true);
         registry.register::<LiteLLMProvider>(false);
         registry.register::<NanoGptProvider>(true);
         registry.register::<OllamaProvider>(true);
@@ -93,6 +95,14 @@ async fn init_registry() -> RwLock<ProviderRegistry> {
     registry.set_cleanup(
         "databricks",
         Arc::new(|| Box::pin(DatabricksProvider::cleanup())),
+    );
+    registry.set_cleanup(
+        "kimi_code",
+        Arc::new(|| Box::pin(KimiCodeProvider::cleanup())),
+    );
+    registry.set_cleanup(
+        "chatgpt_codex",
+        Arc::new(|| Box::pin(ChatGptCodexProvider::cleanup())),
     );
 
     if let Err(e) = load_custom_providers_into_registry(&mut registry) {
@@ -137,6 +147,10 @@ pub async fn get_from_registry(name: &str) -> Result<ProviderEntry> {
         .get(name)
         .ok_or_else(|| anyhow::anyhow!("Unknown provider: {}", name))
         .cloned()
+}
+
+pub async fn inventory_identity(name: &str) -> Result<super::inventory::InventoryIdentityInput> {
+    get_from_registry(name).await?.inventory_identity()
 }
 
 pub async fn create(

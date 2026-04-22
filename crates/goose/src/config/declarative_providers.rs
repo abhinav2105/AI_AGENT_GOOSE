@@ -2,6 +2,7 @@ use crate::config::paths::Paths;
 use crate::config::Config;
 use crate::providers::anthropic::AnthropicProvider;
 use crate::providers::base::{ModelInfo, ProviderType};
+use crate::providers::inventory::declarative_inventory_identity;
 use crate::providers::ollama::OllamaProvider;
 use crate::providers::openai::OpenAiProvider;
 use anyhow::Result;
@@ -460,37 +461,58 @@ pub fn register_declarative_provider(
     match config.engine {
         ProviderEngine::OpenAI => {
             let captured = config.clone();
-            registry.register_with_name::<OpenAiProvider, _>(
+            let identity_config = config.clone();
+            registry.register_with_name::<OpenAiProvider, _, _>(
                 &config,
                 provider_type,
+                config.dynamic_models.unwrap_or(false),
                 move |model| {
                     let mut cfg = captured.clone();
                     resolve_config(&mut cfg)?;
                     OpenAiProvider::from_custom_config(model, cfg)
                 },
+                move || {
+                    let mut cfg = identity_config.clone();
+                    resolve_config(&mut cfg)?;
+                    declarative_inventory_identity(&cfg)
+                },
             );
         }
         ProviderEngine::Ollama => {
             let captured = config.clone();
-            registry.register_with_name::<OllamaProvider, _>(
+            let identity_config = config.clone();
+            registry.register_with_name::<OllamaProvider, _, _>(
                 &config,
                 provider_type,
+                config.dynamic_models.unwrap_or(false),
                 move |model| {
                     let mut cfg = captured.clone();
                     resolve_config(&mut cfg)?;
                     OllamaProvider::from_custom_config(model, cfg)
                 },
+                move || {
+                    let mut cfg = identity_config.clone();
+                    resolve_config(&mut cfg)?;
+                    declarative_inventory_identity(&cfg)
+                },
             );
         }
         ProviderEngine::Anthropic => {
             let captured = config.clone();
-            registry.register_with_name::<AnthropicProvider, _>(
+            let identity_config = config.clone();
+            registry.register_with_name::<AnthropicProvider, _, _>(
                 &config,
                 provider_type,
+                config.dynamic_models.unwrap_or(false),
                 move |model| {
                     let mut cfg = captured.clone();
                     resolve_config(&mut cfg)?;
                     AnthropicProvider::from_custom_config(model, cfg)
+                },
+                move || {
+                    let mut cfg = identity_config.clone();
+                    resolve_config(&mut cfg)?;
+                    declarative_inventory_identity(&cfg)
                 },
             );
         }
@@ -528,6 +550,34 @@ mod tests {
 
         assert_eq!(config.models.len(), 1);
         assert_eq!(config.models[0].name, "openai/gpt-oss-120b");
+    }
+
+    #[test]
+    fn test_llama_swap_json_deserializes() {
+        let json = include_str!("../providers/declarative/llama_swap.json");
+        let config: DeclarativeProviderConfig =
+            serde_json::from_str(json).expect("llama_swap.json should parse");
+        assert_eq!(config.name, "llama_swap");
+        assert_eq!(config.display_name, "Llama Swap");
+        assert!(matches!(config.engine, ProviderEngine::OpenAI));
+        assert_eq!(config.api_key_env, "");
+        assert!(!config.requires_auth);
+        assert!(config.skip_canonical_filtering);
+        assert_eq!(config.dynamic_models, Some(true));
+        assert_eq!(config.supports_streaming, Some(true));
+        assert_eq!(config.base_url, "${LLAMA_SWAP_HOST}/v1/chat/completions");
+        assert!(config.models.is_empty());
+
+        let env_vars = config.env_vars.as_ref().expect("env_vars should be set");
+        assert_eq!(env_vars.len(), 1);
+        assert_eq!(env_vars[0].name, "LLAMA_SWAP_HOST");
+        assert!(!env_vars[0].required);
+        assert!(!env_vars[0].secret);
+        assert_eq!(env_vars[0].primary, Some(true));
+        assert_eq!(
+            env_vars[0].default,
+            Some("http://localhost:8080".to_string())
+        );
     }
 
     #[test]
