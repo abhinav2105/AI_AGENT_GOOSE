@@ -1,0 +1,18 @@
+# Session Summarizer — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# YAML config parsing (reads ~/.config/goose/config.yaml)
+pyyaml>=6.0
+
+# macOS/Linux Keychain access (reads API key Goose already stored)
+keyring>=24.0
+
+# LLM provider SDKs — install the one(s) matching your Goose provider
+# Tetrate (default Goose provider) and OpenAI-compatible APIs:
+openai>=1.0
+
+# Anthropic (if GOOSE_PROVIDER=anthropic):
+anthropic>=0.25
+
+# Google Gemini (if GOOSE_PROVIDER=google or gemini):
+google-genai>=1.0
