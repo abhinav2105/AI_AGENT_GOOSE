@@ -1,0 +1,38 @@
+{
+  "claude-haiku-4-5": {
+    "input_per_1k": 0.0008,
+    "output_per_1k": 0.004
+  },
+  "claude-sonnet-4-6": {
+    "input_per_1k": 0.003,
+    "output_per_1k": 0.015
+  },
+  "claude-opus-4-7": {
+    "input_per_1k": 0.015,
+    "output_per_1k": 0.075
+  },
+  "gpt-4o": {
+    "input_per_1k": 0.0025,
+    "output_per_1k": 0.01
+  },
+  "gpt-4o-mini": {
+    "input_per_1k": 0.00015,
+    "output_per_1k": 0.0006
+  },
+  "gpt-3.5-turbo": {
+    "input_per_1k": 0.0005,
+    "output_per_1k": 0.0015
+  },
+  "gemini-2.0-flash": {
+    "input_per_1k": 0.0001,
+    "output_per_1k": 0.0004
+  },
+  "gemini-1.5-pro": {
+    "input_per_1k": 0.00125,
+    "output_per_1k": 0.005
+  },
+  "default": {
+    "input_per_1k": 0.0008,
+    "output_per_1k": 0.004
+  }
+}
