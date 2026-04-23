@@ -12,7 +12,12 @@ A Python CLI tool that reads real token usage data from Goose's local SQLite dat
 ## How to Run
 
 ```bash
+# Default (uses claude-haiku-4-5 pricing for cumulative total)
 python3 cost_estimator.py
+
+# Override the model used for the cumulative cost total
+python3 cost_estimator.py --model gpt-4o
+python3 cost_estimator.py --model claude-sonnet-4-6
 ```
 
 ## Output
@@ -29,6 +34,5 @@ python3 cost_estimator.py
 No external dependencies — uses Python standard library only.
 
 ## Known Limitations
-- Provider name mapping uses default fallback for unknown providers
 - Date filtering planned for Phase 3
-- Model selection via command line argument planned for Phase 3
+- Goose stores provider-level names (e.g. "tetrate", "anthropic") not full model names, so per-session pricing uses a family-level default (e.g. all Anthropic sessions price as claude-haiku-4-5)

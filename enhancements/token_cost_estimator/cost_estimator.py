@@ -1,3 +1,4 @@
+import argparse
 import sqlite3
 import json
 import os
@@ -7,6 +8,21 @@ DB_PATH = os.path.expanduser("~/.local/share/goose/sessions/sessions.db")
 PRICING_PATH = os.path.join(os.path.dirname(__file__), "pricing.json")
 DEFAULT_MODEL = "claude-haiku-4-5"
 REPORT_DIR = os.path.join(os.path.dirname(__file__), "reports")
+
+# Maps substrings of Goose's provider_name to a pricing key.
+# Goose stores provider-level names like "tetrate", "anthropic", "openai" —
+# not full model names — so we can't match pricing keys directly.
+PROVIDER_FAMILY_MAP = {
+    "anthropic": "claude-haiku-4-5",
+    "claude":    "claude-haiku-4-5",
+    "tetrate":   "claude-haiku-4-5",
+    "openai":    "gpt-4o",
+    "gpt":       "gpt-4o",
+    "azure":     "gpt-4o",
+    "google":    "gemini-2.0-flash",
+    "gemini":    "gemini-2.0-flash",
+    "vertex":    "gemini-2.0-flash",
+}
 
 def load_pricing():
     with open(PRICING_PATH, "r") as f:
@@ -25,13 +41,26 @@ def get_all_sessions():
     conn.close()
     return sessions
 
+def resolve_model_key(provider, pricing, default_model):
+    """Map a Goose provider name to a pricing key."""
+    provider_lower = (provider or "").lower()
+    # Check if the provider string itself contains a full pricing key (e.g. "claude-haiku-4-5")
+    for k in pricing:
+        if k != "default" and k.lower() in provider_lower:
+            return k
+    # Fall back to family-level mapping (e.g. "anthropic" → claude-haiku-4-5)
+    for family, model_key in PROVIDER_FAMILY_MAP.items():
+        if family in provider_lower and model_key in pricing:
+            return model_key
+    return default_model
+
 def calculate_cost(input_tokens, output_tokens, pricing, model):
     rates = pricing.get(model, pricing["default"])
     input_cost = (input_tokens / 1000) * rates["input_per_1k"]
     output_cost = (output_tokens / 1000) * rates["output_per_1k"]
     return input_cost, output_cost, input_cost + output_cost
 
-def print_terminal_report(pricing):
+def print_terminal_report(pricing, default_model):
     sessions = get_all_sessions()
     all_models = [k for k in pricing.keys() if k != "default"]
 
@@ -42,9 +71,10 @@ def print_terminal_report(pricing):
     print("\n" + "="*65)
     print("      GOOSE TOKEN USAGE & COST ESTIMATOR REPORT")
     print("="*65)
-    print(f"  Generated  : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  Sessions   : {len(sessions)}")
-    print("  Token Data : Read directly from Goose sessions database")
+    print(f"  Generated     : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  Sessions      : {len(sessions)}")
+    print(f"  Default Model : {default_model}")
+    print("  Token Data    : Read directly from Goose sessions database")
     print("="*65)
 
     print("\n PER SESSION BREAKDOWN\n")
@@ -56,19 +86,15 @@ def print_terminal_report(pricing):
     for s in sessions:
         input_tok = s["input_tokens"] or 0
         output_tok = s["output_tokens"] or 0
-        provider = s["provider_name"] or DEFAULT_MODEL
-
-        model_key = DEFAULT_MODEL
-        for k in pricing:
-            if k != "default" and k.lower() in (provider or "").lower():
-                model_key = k
-                break
+        provider = s["provider_name"] or default_model
+        model_key = resolve_model_key(provider, pricing, default_model)
 
         input_cost, output_cost, total_cost = calculate_cost(input_tok, output_tok, pricing, model_key)
 
         print(f"  Session  : {s['id']}")
         print(f"  Name     : {s['name'] or 'Unnamed'}")
         print(f"  Provider : {provider}")
+        print(f"  Priced As: {model_key}")
         print(f"  Dir      : {s['working_dir']}")
         print(f"  Input    : {input_tok:,} tokens  (${input_cost:.6f})")
         print(f"  Output   : {output_tok:,} tokens  (${output_cost:.6f})")
@@ -96,12 +122,12 @@ def print_terminal_report(pricing):
 
     for model in all_models:
         ic, oc, tc = calculate_cost(total_input, total_output, pricing, model)
-        marker = " <-- active" if model == DEFAULT_MODEL else ""
+        marker = " <-- active" if model == default_model else ""
         print(f"  {model:<25} ${ic:>10.6f} ${oc:>10.6f} ${tc:>10.6f}{marker}")
 
     print(f"{'='*65}\n")
 
-def save_markdown_report(pricing):
+def save_markdown_report(pricing, default_model):
     sessions = get_all_sessions()
     all_models = [k for k in pricing.keys() if k != "default"]
     os.makedirs(REPORT_DIR, exist_ok=True)
@@ -111,30 +137,26 @@ def save_markdown_report(pricing):
 
     total_input = sum(s["input_tokens"] or 0 for s in sessions)
     total_output = sum(s["output_tokens"] or 0 for s in sessions)
-    _, _, total_cost = calculate_cost(total_input, total_output, pricing, DEFAULT_MODEL)
+    _, _, total_cost = calculate_cost(total_input, total_output, pricing, default_model)
 
     lines = []
     lines.append("# Goose Token Usage & Cost Estimator Report\n")
     lines.append(f"- **Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"- **Active Model:** {DEFAULT_MODEL}")
+    lines.append(f"- **Active Model:** {default_model}")
     lines.append(f"- **Total Sessions:** {len(sessions)}")
     lines.append("- **Token Data:** Read directly from Goose sessions database\n")
     lines.append("---\n")
     lines.append("## Per Session Breakdown\n")
-    lines.append("| Session ID | Name | Provider | Input Tokens | Output Tokens | Total Tokens | Est. Cost |")
-    lines.append("|------------|------|----------|-------------|--------------|-------------|-----------|")
+    lines.append("| Session ID | Name | Provider | Priced As | Input Tokens | Output Tokens | Total Tokens | Est. Cost |")
+    lines.append("|------------|------|----------|-----------|-------------|--------------|-------------|-----------|")
 
     for s in sessions:
         input_tok = s["input_tokens"] or 0
         output_tok = s["output_tokens"] or 0
-        provider = s["provider_name"] or DEFAULT_MODEL
-        model_key = DEFAULT_MODEL
-        for k in pricing:
-            if k != "default" and k.lower() in (provider or "").lower():
-                model_key = k
-                break
+        provider = s["provider_name"] or default_model
+        model_key = resolve_model_key(provider, pricing, default_model)
         _, _, cost = calculate_cost(input_tok, output_tok, pricing, model_key)
-        lines.append(f"| {s['id']} | {s['name'] or 'Unnamed'} | {provider} | {input_tok:,} | {output_tok:,} | {input_tok + output_tok:,} | ${cost:.6f} |")
+        lines.append(f"| {s['id']} | {s['name'] or 'Unnamed'} | {provider} | {model_key} | {input_tok:,} | {output_tok:,} | {input_tok + output_tok:,} | ${cost:.6f} |")
 
     lines.append("\n---\n")
     lines.append("## Cumulative Total\n")
@@ -151,7 +173,7 @@ def save_markdown_report(pricing):
 
     for model in all_models:
         ic, oc, tc = calculate_cost(total_input, total_output, pricing, model)
-        note = "Active" if model == DEFAULT_MODEL else ""
+        note = "Active" if model == default_model else ""
         lines.append(f"| {model} | ${ic:.6f} | ${oc:.6f} | ${tc:.6f} | {note} |")
 
     lines.append("\n---\n")
@@ -164,6 +186,22 @@ def save_markdown_report(pricing):
     return filename
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Goose Token Usage & Cost Estimator")
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"Pricing model to use for the cumulative cost total (default: {DEFAULT_MODEL}). "
+             "Must match a key in pricing.json.",
+    )
+    args = parser.parse_args()
+
     pricing = load_pricing()
-    print_terminal_report(pricing)
-    save_markdown_report(pricing)
+
+    if args.model not in pricing:
+        valid = [k for k in pricing if k != "default"]
+        print(f"Warning: model '{args.model}' not found in pricing.json. "
+              f"Valid options: {', '.join(valid)}. Using default '{DEFAULT_MODEL}'.")
+        args.model = DEFAULT_MODEL
+
+    print_terminal_report(pricing, args.model)
+    save_markdown_report(pricing, args.model)
