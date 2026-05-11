@@ -10,7 +10,7 @@
     "license": {
       "name": "Apache-2.0"
     },
-    "version": "1.31.0"
+    "version": "1.34.0"
   },
   "paths": {
     "/action-required/tool-confirmation": {
@@ -747,29 +747,6 @@
         }
       }
     },
-    "/config/backup": {
-      "post": {
-        "tags": [
-          "super::routes::config_management"
-        ],
-        "operationId": "backup_config",
-        "responses": {
-          "200": {
-            "description": "Config file backed up",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
     "/config/canonical-model-info": {
       "post": {
         "tags": [
@@ -1058,29 +1035,6 @@
           },
           "404": {
             "description": "Extension not found"
-          },
-          "500": {
-            "description": "Internal server error"
-          }
-        }
-      }
-    },
-    "/config/init": {
-      "post": {
-        "tags": [
-          "super::routes::config_management"
-        ],
-        "operationId": "init_config",
-        "responses": {
-          "200": {
-            "description": "Config initialization check completed",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
           },
           "500": {
             "description": "Internal server error"
@@ -1481,29 +1435,6 @@
           },
           "500": {
             "description": "Unable to get the configuration value"
-          }
-        }
-      }
-    },
-    "/config/recover": {
-      "post": {
-        "tags": [
-          "super::routes::config_management"
-        ],
-        "operationId": "recover_config",
-        "responses": {
-          "200": {
-            "description": "Config recovery attempted",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error"
           }
         }
       }
@@ -2818,7 +2749,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Scheduled job deleted successfully"
+            "description": "Scheduled job removed successfully"
           },
           "404": {
             "description": "Scheduled job not found"
@@ -3293,6 +3224,37 @@
         ]
       }
     },
+    "/sessions/tags": {
+      "get": {
+        "tags": [
+          "Session Management"
+        ],
+        "operationId": "get_all_tags",
+        "responses": {
+          "200": {
+            "description": "All unique tags with counts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllTagsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/sessions/{id}/cancel": {
       "post": {
         "tags": [
@@ -3694,6 +3656,183 @@
         ]
       }
     },
+    "/sessions/{session_id}/tags": {
+      "get": {
+        "tags": [
+          "Session Management"
+        ],
+        "operationId": "get_session_tags",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Unique identifier for the session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tags retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTagsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Session Management"
+        ],
+        "operationId": "add_session_tags",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Unique identifier for the session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Tags added successfully"
+          },
+          "400": {
+            "description": "Bad request - no tags provided"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/sessions/{session_id}/tags/auto": {
+      "post": {
+        "tags": [
+          "Session Management"
+        ],
+        "operationId": "auto_tag_session",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Unique identifier for the session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tags auto-generated and saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTagsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Session not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/sessions/{session_id}/tags/{tag}": {
+      "delete": {
+        "tags": [
+          "Session Management"
+        ],
+        "operationId": "remove_session_tag",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "Unique identifier for the session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag",
+            "in": "path",
+            "description": "Tag to remove",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tag removed successfully"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
     "/sessions/{session_id}/user_recipe_values": {
       "put": {
         "tags": [
@@ -4019,6 +4158,37 @@
           },
           "session_id": {
             "type": "string"
+          }
+        }
+      },
+      "AddTagsRequest": {
+        "type": "object",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AllTagsResponse": {
+        "type": "object",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagCount"
+            }
           }
         }
       },
@@ -4643,6 +4813,10 @@
             },
             "nullable": true
           },
+          "model_doc_link": {
+            "type": "string",
+            "nullable": true
+          },
           "models": {
             "type": "array",
             "items": {
@@ -4654,6 +4828,12 @@
           },
           "requires_auth": {
             "type": "boolean"
+          },
+          "setup_steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "skip_canonical_filtering": {
             "type": "boolean"
@@ -7779,6 +7959,11 @@
             "format": "int32",
             "nullable": true
           },
+          "archived_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "conversation": {
             "allOf": [
               {
@@ -7825,6 +8010,10 @@
             "format": "int32",
             "nullable": true
           },
+          "project_id": {
+            "type": "string",
+            "nullable": true
+          },
           "provider_name": {
             "type": "string",
             "nullable": true
@@ -7843,10 +8032,6 @@
           },
           "session_type": {
             "$ref": "#/components/schemas/SessionType"
-          },
-          "thread_id": {
-            "type": "string",
-            "nullable": true
           },
           "total_tokens": {
             "type": "integer",
@@ -8011,6 +8196,48 @@
         "properties": {
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "SessionTag": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "tag",
+          "source"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionTagsResponse": {
+        "type": "object",
+        "required": [
+          "sessionId",
+          "tags"
+        ],
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionTag"
+            }
           }
         }
       },
@@ -8304,6 +8531,22 @@
           "inlineMessage",
           "creditsExhausted"
         ]
+      },
+      "TagCount": {
+        "type": "object",
+        "required": [
+          "tag",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "tag": {
+            "type": "string"
+          }
+        }
       },
       "TaskSupport": {
         "oneOf": [

@@ -30,6 +30,15 @@ export type AddExtensionRequest = {
     session_id: string;
 };
 
+export type AddTagsRequest = {
+    source?: string;
+    tags: Array<string>;
+};
+
+export type AllTagsResponse = {
+    tags: Array<TagCount>;
+};
+
 export type Annotations = {
     audience?: Array<Role>;
     lastModified?: string;
@@ -220,9 +229,11 @@ export type DeclarativeProviderConfig = {
     headers?: {
         [key: string]: string;
     } | null;
+    model_doc_link?: string | null;
     models: Array<ModelInfo>;
     name: string;
     requires_auth?: boolean;
+    setup_steps?: Array<string>;
     skip_canonical_filtering?: boolean;
     supports_streaming?: boolean | null;
     timeout_seconds?: number | null;
@@ -1254,6 +1265,7 @@ export type Session = {
     accumulated_input_tokens?: number | null;
     accumulated_output_tokens?: number | null;
     accumulated_total_tokens?: number | null;
+    archived_at?: string | null;
     conversation?: Conversation | null;
     created_at: string;
     extension_data: ExtensionData;
@@ -1264,11 +1276,11 @@ export type Session = {
     model_config?: ModelConfig | null;
     name: string;
     output_tokens?: number | null;
+    project_id?: string | null;
     provider_name?: string | null;
     recipe?: Recipe | null;
     schedule_id?: string | null;
     session_type?: SessionType;
-    thread_id?: string | null;
     total_tokens?: number | null;
     updated_at: string;
     user_recipe_values?: {
@@ -1320,6 +1332,18 @@ export type SessionReplyRequest = {
 
 export type SessionReplyResponse = {
     request_id: string;
+};
+
+export type SessionTag = {
+    createdAt?: string | null;
+    sessionId: string;
+    source: string;
+    tag: string;
+};
+
+export type SessionTagsResponse = {
+    sessionId: string;
+    tags: Array<SessionTag>;
 };
 
 export type SessionType = 'user' | 'scheduled' | 'sub_agent' | 'hidden' | 'terminal' | 'gateway' | 'acp';
@@ -1410,6 +1434,11 @@ export type SystemNotificationContent = {
 };
 
 export type SystemNotificationType = 'thinkingMessage' | 'inlineMessage' | 'creditsExhausted';
+
+export type TagCount = {
+    count: number;
+    tag: string;
+};
 
 export type TaskSupport = 'forbidden' | 'optional' | 'required';
 
@@ -2233,29 +2262,6 @@ export type ReadAllConfigResponses = {
 
 export type ReadAllConfigResponse = ReadAllConfigResponses[keyof ReadAllConfigResponses];
 
-export type BackupConfigData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/config/backup';
-};
-
-export type BackupConfigErrors = {
-    /**
-     * Internal server error
-     */
-    500: unknown;
-};
-
-export type BackupConfigResponses = {
-    /**
-     * Config file backed up
-     */
-    200: string;
-};
-
-export type BackupConfigResponse = BackupConfigResponses[keyof BackupConfigResponses];
-
 export type GetCanonicalModelInfoData = {
     body: ModelInfoQuery;
     path?: never;
@@ -2475,29 +2481,6 @@ export type RemoveExtensionResponses = {
 };
 
 export type RemoveExtensionResponse = RemoveExtensionResponses[keyof RemoveExtensionResponses];
-
-export type InitConfigData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/config/init';
-};
-
-export type InitConfigErrors = {
-    /**
-     * Internal server error
-     */
-    500: unknown;
-};
-
-export type InitConfigResponses = {
-    /**
-     * Config initialization check completed
-     */
-    200: string;
-};
-
-export type InitConfigResponse = InitConfigResponses[keyof InitConfigResponses];
 
 export type UpsertPermissionsData = {
     body: UpsertPermissionsQuery;
@@ -2812,29 +2795,6 @@ export type ReadConfigResponses = {
      */
     200: unknown;
 };
-
-export type RecoverConfigData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/config/recover';
-};
-
-export type RecoverConfigErrors = {
-    /**
-     * Internal server error
-     */
-    500: unknown;
-};
-
-export type RecoverConfigResponses = {
-    /**
-     * Config recovery attempted
-     */
-    200: string;
-};
-
-export type RecoverConfigResponse = RecoverConfigResponses[keyof RecoverConfigResponses];
 
 export type RemoveConfigData = {
     body: ConfigKeyQuery;
@@ -3834,7 +3794,7 @@ export type DeleteScheduleErrors = {
 
 export type DeleteScheduleResponses = {
     /**
-     * Scheduled job deleted successfully
+     * Scheduled job removed successfully
      */
     204: void;
 };
@@ -4211,6 +4171,33 @@ export type SearchSessionsResponses = {
 
 export type SearchSessionsResponse = SearchSessionsResponses[keyof SearchSessionsResponses];
 
+export type GetAllTagsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/sessions/tags';
+};
+
+export type GetAllTagsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type GetAllTagsResponses = {
+    /**
+     * All unique tags with counts
+     */
+    200: AllTagsResponse;
+};
+
+export type GetAllTagsResponse = GetAllTagsResponses[keyof GetAllTagsResponses];
+
 export type SessionCancelData = {
     body: CancelRequest;
     path: {
@@ -4514,6 +4501,142 @@ export type UpdateSessionNameErrors = {
 export type UpdateSessionNameResponses = {
     /**
      * Session name updated successfully
+     */
+    200: unknown;
+};
+
+export type GetSessionTagsData = {
+    body?: never;
+    path: {
+        /**
+         * Unique identifier for the session
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/sessions/{session_id}/tags';
+};
+
+export type GetSessionTagsErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type GetSessionTagsResponses = {
+    /**
+     * Tags retrieved successfully
+     */
+    200: SessionTagsResponse;
+};
+
+export type GetSessionTagsResponse = GetSessionTagsResponses[keyof GetSessionTagsResponses];
+
+export type AddSessionTagsData = {
+    body: AddTagsRequest;
+    path: {
+        /**
+         * Unique identifier for the session
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/sessions/{session_id}/tags';
+};
+
+export type AddSessionTagsErrors = {
+    /**
+     * Bad request - no tags provided
+     */
+    400: unknown;
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type AddSessionTagsResponses = {
+    /**
+     * Tags added successfully
+     */
+    200: unknown;
+};
+
+export type AutoTagSessionData = {
+    body?: never;
+    path: {
+        /**
+         * Unique identifier for the session
+         */
+        session_id: string;
+    };
+    query?: never;
+    url: '/sessions/{session_id}/tags/auto';
+};
+
+export type AutoTagSessionErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Session not found
+     */
+    404: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type AutoTagSessionResponses = {
+    /**
+     * Tags auto-generated and saved
+     */
+    200: SessionTagsResponse;
+};
+
+export type AutoTagSessionResponse = AutoTagSessionResponses[keyof AutoTagSessionResponses];
+
+export type RemoveSessionTagData = {
+    body?: never;
+    path: {
+        /**
+         * Unique identifier for the session
+         */
+        session_id: string;
+        /**
+         * Tag to remove
+         */
+        tag: string;
+    };
+    query?: never;
+    url: '/sessions/{session_id}/tags/{tag}';
+};
+
+export type RemoveSessionTagErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
+    /**
+     * Internal server error
+     */
+    500: unknown;
+};
+
+export type RemoveSessionTagResponses = {
+    /**
+     * Tag removed successfully
      */
     200: unknown;
 };
