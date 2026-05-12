@@ -120,8 +120,8 @@ def create_branch(session_id, from_message, original_name, all_messages):
             accumulated_total_tokens, accumulated_input_tokens,
             accumulated_output_tokens, schedule_id, recipe_json,
             user_recipe_values_json, provider_name, model_config_json,
-            goose_mode, thread_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            goose_mode
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         new_session_id, branch_name,
         f"Branched from session {session_id} at message {from_message}",
@@ -132,7 +132,7 @@ def create_branch(session_id, from_message, original_name, all_messages):
         None, None, None, None, None, None,
         None, None, None,
         original['provider_name'], original['model_config_json'],
-        original['goose_mode'], None
+        original['goose_mode']
     ))
 
     messages_to_copy = all_messages[:from_message]
