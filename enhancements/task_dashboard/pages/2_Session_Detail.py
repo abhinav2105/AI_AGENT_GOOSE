@@ -79,7 +79,8 @@ for _, m in msgs.iterrows():
     items = parse_content(m["content_json"])
 
     ts = m["timestamp"]
-    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if ts is not None and not (isinstance(ts, float)) else ""
+    import pandas as pd
+    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") if ts is not None and not isinstance(ts, float) and not pd.isnull(ts) else ""
 
     with st.chat_message(role if role in ("user", "assistant") else "assistant"):
         header = f"**{icon} {role}**"
